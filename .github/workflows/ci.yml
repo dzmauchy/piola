@@ -1,0 +1,46 @@
+name: CI
+on:
+  - push
+jobs:
+  linux_build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Install SCTP
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lksctp-tools
+          sudo ip link set dev lo multicast on
+          sudo ip addr add 127.255.255.255/8 dev lo
+      - name: JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '22'
+          distribution: 'oracle'
+      - name: Build
+        run: ./mvnw install
+  windows_build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '22'
+          distribution: 'oracle'
+      - name: Build
+        run: .\mvnw.cmd install
+  macos_build:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '22'
+          distribution: 'oracle'
+      - name: Build
+        run: ./mvnw install

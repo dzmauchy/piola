@@ -1,0 +1,2 @@
+org.dauch.piola.processors.SerializationProcessor
+org.dauch.piola.processors.ConfigurationProcessor
