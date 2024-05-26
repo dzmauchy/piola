@@ -31,7 +31,7 @@ import static java.util.concurrent.atomic.AtomicLongFieldUpdater.newUpdater;
 public final class BigIntCounter {
 
   private static final AtomicLongFieldUpdater<BigIntCounter> COUNTER = newUpdater(BigIntCounter.class, "counter");
-  private static final long THRESHOLD = 1L << 62;
+  static final long THRESHOLD = 1L << 62;
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private volatile long counter;
@@ -55,7 +55,7 @@ public final class BigIntCounter {
     if (COUNTER.addAndGet(this, value) > THRESHOLD) {
       lock.writeLock().lock();
       try {
-        var old = COUNTER.getAndSet(this, value);
+        var old = COUNTER.getAndSet(this, 0L);
         base = base.add(BigInteger.valueOf(old));
       } finally {
         lock.writeLock().unlock();
@@ -70,7 +70,7 @@ public final class BigIntCounter {
     if (COUNTER.incrementAndGet(this) > THRESHOLD) {
       lock.writeLock().lock();
       try {
-        var old = COUNTER.getAndSet(this, 1L);
+        var old = COUNTER.getAndSet(this, 0L);
         base = base.add(BigInteger.valueOf(old));
       } finally {
         lock.writeLock().unlock();

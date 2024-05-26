@@ -25,6 +25,7 @@ package org.dauch.piola.sctp.client;
 import org.dauch.piola.annotation.Conf;
 import org.dauch.piola.annotation.Default;
 import org.dauch.piola.api.conf.SctpClientConfigIO;
+import org.dauch.piola.client.ClientConfig;
 import org.dauch.piola.sctp.ServerClientConfig;
 
 import java.nio.file.Path;
@@ -40,9 +41,9 @@ public record SctpClientConfig(
   @Default("false") boolean nagle,
   @Default("60") int linger,
   @Default("0.25f") float freeRatio,
-  @Default("129") int maxStreams,
+  @Default("128") int maxStreams,
   @Default("bufferDirDefault()") Path bufferDir
-) implements ServerClientConfig {
+) implements ClientConfig, ServerClientConfig {
 
   public static SctpClientConfig fromProperties(String prefix, Properties properties) {
     return SctpClientConfigIO.get(prefix, properties);

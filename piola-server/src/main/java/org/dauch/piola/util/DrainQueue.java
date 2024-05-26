@@ -62,6 +62,12 @@ public final class DrainQueue<E> {
     return putIndex != 0;
   }
 
+  public synchronized void awaitEmpty(Runnable onFinish) throws InterruptedException {
+    if (putIndex > 0)
+      wait(0L);
+    onFinish.run();
+  }
+
   public int capacity() {
     return queue.length;
   }

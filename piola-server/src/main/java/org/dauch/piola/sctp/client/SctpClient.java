@@ -26,55 +26,64 @@ import com.sun.nio.sctp.SctpMultiChannel;
 import org.dauch.piola.api.*;
 import org.dauch.piola.api.request.Request;
 import org.dauch.piola.api.response.Response;
-import org.dauch.piola.buffer.BufferManager;
 import org.dauch.piola.client.*;
 import org.dauch.piola.sctp.SctpUtils;
-import org.dauch.piola.util.Closeables;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
-import java.lang.ref.Cleaner;
-import java.math.BigInteger;
 import java.net.InetSocketAddress;
-import java.nio.channels.ClosedChannelException;
-import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicLong;
+import java.nio.ByteBuffer;
+import java.util.concurrent.LinkedTransferQueue;
 
 import static com.sun.nio.sctp.MessageInfo.createOutgoing;
-import static java.lang.Character.MAX_RADIX;
-import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
-import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.dauch.piola.sctp.SctpUtils.streamNumber;
 
-public final class SctpClient implements Client {
+public final class SctpClient extends AbstractClient {
 
-  private static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("client-cleaner").factory());
-
-  private final long exitCmd = ThreadLocalRandom.current().nextLong();
-  private final AtomicLong ids = new AtomicLong();
-  private final ConcurrentSkipListMap<Long, LinkedTransferQueue<ClientResponse<?>>> responses = new ConcurrentSkipListMap<>();
-  private final SctpClientConfig config;
-  private final System.Logger logger;
   private final SctpMultiChannel channel;
-  private final BufferManager buffers;
-  private final BufferManager writeBuffers;
-  private final Thread responseScanner;
 
   public SctpClient(SctpClientConfig conf) {
-    config = conf;
-    logger = System.getLogger("client-" + conf.name());
-    var cs = new Closeables();
+    super(conf);
     try {
-      var prefix = new BigInteger(1, conf.name().getBytes(UTF_8)).toString(MAX_RADIX);
-      buffers = cs.add(new BufferManager(prefix + "-read", conf));
-      writeBuffers = cs.add(new BufferManager(prefix + "-write", conf));
-      channel = SctpMultiChannel.open();
+      channel = $("channel", SctpMultiChannel.open());
       SctpUtils.configure(channel, conf);
       channel.bind(null, 0);
-      responseScanner = Thread.ofVirtual().name("client-" + conf.name()).start(this::scanForResponses);
+      startThreads();
     } catch (Throwable e) {
-      throw cs.closeAndWrap(new IllegalStateException("Unable to create client " + conf.name(), e));
+      throw initException(new IllegalStateException("Unable to create client " + conf.name(), e));
+    }
+  }
+
+  @Override
+  protected void sendShutdownSequence() throws Exception {
+    var addr = SctpUtils.sendExitSequence(channel, exitCmd);
+    logger.log(INFO, () -> "Shutdown sequence sent to " + addr);
+  }
+
+  @Override
+  protected void doScanResponses(ByteBuffer buf) throws Exception {
+    var msg = channel.receive(buf, null, null);
+    try {
+      if (SctpUtils.isExitSequence(channel, msg, buf, exitCmd)) {
+        logger.log(INFO, () -> "Shutdown sequence received: " + msg);
+        throw new InterruptedException();
+      }
+      var serverId = buf.flip().getInt();
+      var id = buf.getLong();
+      var queue = responses.get(id);
+      if (queue == null) {
+        channel.shutdown(msg.association());
+      } else {
+        var in = new SerializationContext();
+        var rsp = ResponseFactory.read(buf, in);
+        var out = SerializationContext.read(buf);
+        var address = (InetSocketAddress) msg.address();
+        queue.add(new ClientResponse<>(serverId, address, rsp, out, in));
+      }
+    } catch (Throwable e) {
+      channel.shutdown(msg.association());
+      throw e;
     }
   }
 
@@ -94,54 +103,5 @@ public final class SctpClient implements Client {
       writeBuffers.release(buf);
     }
     return fetcher;
-  }
-
-  private void scanForResponses() {
-    while (true) {
-      var buf = buffers.get();
-      try {
-        var msg = channel.receive(buf, null, null);
-        try {
-          if (SctpUtils.isExitSequence(channel, msg, buf, exitCmd)) {
-            logger.log(INFO, () -> "Shutdown sequence received: " + msg);
-            break;
-          }
-          var serverId = buf.flip().getInt();
-          var id = buf.getLong();
-          var queue = responses.get(id);
-          if (queue == null) {
-            channel.shutdown(msg.association());
-          } else {
-            var in = new SerializationContext();
-            var rsp = ResponseFactory.read(buf, in);
-            var out = SerializationContext.read(buf);
-            var address = (InetSocketAddress) msg.address();
-            queue.add(new ClientResponse<>(serverId, address, rsp, out, in));
-          }
-        } catch (Throwable e) {
-          channel.shutdown(msg.association());
-          throw e;
-        }
-      } catch (ClosedChannelException _) {
-        logger.log(INFO, "Closed");
-        break;
-      } catch (Throwable e) {
-        logger.log(ERROR, "Unknown error", e);
-      } finally {
-        buffers.release(buf);
-      }
-    }
-    logger.log(INFO, "Scanner finished");
-  }
-
-  @Override
-  public void close() throws Exception {
-    try (buffers; writeBuffers; channel) {
-      logger.log(INFO, () -> "Closing " + config.name());
-      var addr = SctpUtils.sendExitSequence(channel, exitCmd);
-      logger.log(INFO, () -> "Shutdown sequence sent to " + addr);
-      responseScanner.join();
-    }
-    logger.log(INFO, () -> "Closed " + config.name());
   }
 }

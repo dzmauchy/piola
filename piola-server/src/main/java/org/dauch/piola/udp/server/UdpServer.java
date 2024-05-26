@@ -24,11 +24,11 @@ package org.dauch.piola.udp.server;
 
 import org.dauch.piola.server.AbstractServer;
 import org.dauch.piola.udp.UdpUtils;
-import org.dauch.piola.util.Closeables;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.*;
+import java.nio.ByteBuffer;
 import java.nio.channels.DatagramChannel;
 import java.util.stream.Stream;
 
@@ -41,11 +41,10 @@ public final class UdpServer extends AbstractServer<UdpRq, UdpRs> {
 
   public UdpServer(UdpServerConfig config) {
     super(config, UdpRq[]::new, UdpRs[]::new);
-    var cs = new Closeables();
     try {
       address = config.address().getAddress();
       networkInterface = config.multicastNetworkInterface();
-      channel = cs.add(DatagramChannel.open(config.protocolFamily()));
+      channel = $("channel", DatagramChannel.open(config.protocolFamily()));
       UdpUtils.configure(channel, config);
       channel.bind(config.address());
       port = ((InetSocketAddress) channel.getLocalAddress()).getPort();
@@ -53,7 +52,7 @@ public final class UdpServer extends AbstractServer<UdpRq, UdpRs> {
       startThreads();
       $("membership", membershipKey::drop);
     } catch (Throwable e) {
-      throw cs.closeAndWrap(new IllegalStateException("Unable to start server " + config.id(), e));
+      throw initException(new IllegalStateException("Unable to start server " + config.id(), e));
     }
   }
 
@@ -92,7 +91,11 @@ public final class UdpServer extends AbstractServer<UdpRq, UdpRs> {
   }
 
   @Override
-  protected void doInMainLoop() throws Exception {
+  protected void doInMainLoop(ByteBuffer buf) throws Exception {
+  }
+
+  @Override
+  protected void doSendShutdownSequence() throws Exception {
   }
 
   @Override

@@ -29,6 +29,7 @@ import org.dauch.piola.buffer.BufferManager;
 import org.dauch.piola.util.*;
 
 import java.math.BigInteger;
+import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.util.BitSet;
 import java.util.concurrent.ThreadLocalRandom;
@@ -151,16 +152,20 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
 
   protected abstract void requestLoop();
   protected abstract void responseLoop();
-  protected abstract void doInMainLoop() throws Exception;
+  protected abstract void doInMainLoop(ByteBuffer buffer) throws Exception;
+  protected abstract void doSendShutdownSequence() throws Exception;
 
   private void mainLoop() {
     while (true) {
+      var buf = buffers.get();
       try {
-        doInMainLoop();
+        doInMainLoop(buf);
       } catch (ClosedChannelException | InterruptedException _) {
+        buffers.release(buf);
         logger.log(INFO, "Closed");
         break;
       } catch (Throwable e) {
+        buffers.release(buf);
         logger.log(ERROR, "Unexpected exception", e);
         unexpectedErrors.increment();
       }
@@ -171,26 +176,11 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
 
   protected void startThreads() {
     $("responses-thread", responseThread::join);
-    $("responses", () -> {
-      while (responses.nonEmpty()) {
-        parkNanos(1_000_000L);
-      }
-      runningResponses = false;
-    });
+    $("responses", () -> responses.awaitEmpty(() -> runningResponses = false));
     $("requests-thread", requestThread::join);
-    $("requests", () -> {
-      while (requests.nonEmpty()) {
-        parkNanos(1_000_000L);
-      }
-      runningRequests = false;
-    });
-    $("mainLoop", () -> {
-      try {
-        mainLoopThread.join();
-      } finally {
-        running = false;
-      }
-    });
+    $("requests", () -> requests.awaitEmpty(() -> runningRequests = false));
+    $("mainLoopThread", mainLoopThread::join);
+    $("mainLoop", this::sendShutdownSequence);
     requestThread.start();
     responseThread.start();
     mainLoopThread.start();
@@ -221,6 +211,14 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     drain(responseThreads, responses.drain(rss), rss, sink);
   }
 
+  private void sendShutdownSequence() throws Exception {
+    try {
+      doSendShutdownSequence();
+    } finally {
+      running = false;
+    }
+  }
+
   private <T extends Streamed> void drain(AtomicReferenceArray<Thread> ths, int count, T[] t, Consumer<T> sink) {
     if (count == 0) {
       parkNanos(1_000_000L);
@@ -235,7 +233,7 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
           if (!hasNonVisited) start++;
           continue;
         }
-        var thread = sink(ths, e.stream(), i, count, t, sink);
+        var thread = sink(ths, i, count, t, sink);
         if (ths.compareAndSet(e.stream(), null, thread)) {
           thread.start();
           passed.set(e.stream());
@@ -252,8 +250,9 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     }
   }
 
-  private <T extends Streamed> Thread sink(AtomicReferenceArray<Thread> a, int s, int i, int count, T[] t, Consumer<T> sink) {
+  private <T extends Streamed> Thread sink(AtomicReferenceArray<Thread> a, int i, int count, T[] t, Consumer<T> sink) {
     return Thread.ofVirtual().unstarted(() -> {
+      var s = t[i].stream();
       try {
         for (int k = i; k < count; k++) {
           var e = t[k];

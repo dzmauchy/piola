@@ -57,13 +57,15 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
         channel.bindAddress(Inet4Address.getByAddress(new byte[]{127, 0, 0, 1}));
       }
       startThreads();
-      $("channel-loop", () -> {
-        var addr = SctpUtils.sendExitSequence(channel, exitCmd);
-        logger.log(INFO, () -> "Shutdown sequence sent to " + addr);
-      });
     } catch (Throwable e) {
       throw initException(new IllegalStateException("Unable to start server " + id));
     }
+  }
+
+  @Override
+  protected void doSendShutdownSequence() throws Exception {
+    var addr = SctpUtils.sendExitSequence(channel, exitCmd);
+    logger.log(INFO, () -> "Shutdown sequence sent to " + addr);
   }
 
   @Override
@@ -95,8 +97,7 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
   }
 
   @Override
-  protected void doInMainLoop() throws Exception {
-    var buf = buffers.get();
+  protected void doInMainLoop(ByteBuffer buf) throws Exception {
     var msg = channel.receive(buf, null, null);
     receivedSize.add(msg.bytes());
     receivedRequests.increment();

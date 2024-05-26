@@ -1,4 +1,4 @@
-package org.dauch.piola.util;
+package org.dauch.piola.client;
 
 /*-
  * #%L
@@ -22,7 +22,8 @@ package org.dauch.piola.util;
  * #L%
  */
 
-@FunctionalInterface
-public interface BiIntObjectConsumer<E> {
-  void accept(int key, E value);
+import org.dauch.piola.buffer.BufferConfig;
+
+public interface ClientConfig extends BufferConfig {
+  String name();
 }

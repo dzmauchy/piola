@@ -37,7 +37,7 @@ import java.util.Properties;
 public record SctpServerConfig(
   @Default("0") int id,
   @Default("addressDefault()") InetSocketAddress address,
-  @Default("129") int maxStreams,
+  @Default("128") int maxStreams,
   @Default("64") int backlog,
   @Default("false") boolean nagle,
   @Default("60") int linger,

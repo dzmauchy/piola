@@ -23,31 +23,27 @@ package org.dauch.piola.util;
  */
 
 import java.nio.ByteBuffer;
-import java.util.*;
+import java.util.NoSuchElementException;
 
 import static java.lang.Integer.remainderUnsigned;
 import static java.lang.System.identityHashCode;
-import static java.util.Objects.requireNonNull;
 
 public final class ByteBufferIntMap {
 
-  private final Entry[][] entries;
+  private final Entry[] entries;
 
   public ByteBufferIntMap(ByteBuffer[] buffers) {
-    var len = buffers.length;
-    entries = new Entry[len][];
-    var m = HashMap.<Integer, List<Entry>>newHashMap(len);
+    entries = new Entry[buffers.length];
     for (int i = 0; i < buffers.length; i++) {
       var b = buffers[i];
-      m.computeIfAbsent(remainderUnsigned(identityHashCode(b), len), _ -> new LinkedList<>()).addLast(new Entry(i, b));
+      var index = remainderUnsigned(identityHashCode(b), buffers.length);
+      entries[index] = new Entry(i, b, entries[index]);
     }
-    m.forEach((i, l) -> entries[i] = l.toArray(Entry[]::new));
   }
 
   public int get(ByteBuffer buffer) {
     var i = remainderUnsigned(identityHashCode(buffer), entries.length);
-    var es = requireNonNull(entries[i], () -> "Not pooled: " + buffer);
-    for (var e : es) {
+    for (var e = entries[i]; e != null; e = e.prev) {
       if (e.buffer == buffer) {
         return e.index;
       }
@@ -55,5 +51,5 @@ public final class ByteBufferIntMap {
     throw new NoSuchElementException("Not pooled: " + buffer);
   }
 
-  private record Entry(int index, ByteBuffer buffer) {}
+  private record Entry(int index, ByteBuffer buffer, Entry prev) {}
 }

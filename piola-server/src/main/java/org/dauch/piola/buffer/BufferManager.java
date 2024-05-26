@@ -64,7 +64,7 @@ public final class BufferManager implements Closeable {
         var buffer = buffers[i] = channel.map(READ_WRITE, (long) i * (long) maxBufferSize, maxBufferSize);
         segments[i] = MemorySegment.ofBuffer(buffer);
       }
-      this.bufferMap = new ByteBufferIntMap(buffers);
+      bufferMap = new ByteBufferIntMap(buffers);
     } catch (Throwable e) {
       if (BufferManager.this.channel != null) {
         try {
