@@ -24,8 +24,8 @@ package org.dauch.piola.api.request;
 
 import org.dauch.piola.annotation.Id;
 import org.dauch.piola.annotation.Serde;
-import org.dauch.piola.api.response.UnknownRequestResponse;
+import org.dauch.piola.api.response.ErrorResponse;
 
 @Serde
-public record UnknownRequest(@Id(1) int code) implements Request<UnknownRequestResponse> {
+public record UnknownRequest(@Id(1) int code) implements Request<ErrorResponse> {
 }

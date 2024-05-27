@@ -24,7 +24,8 @@ package org.dauch.piola.client;
 
 import org.dauch.piola.api.response.Response;
 
-import java.util.concurrent.CompletableFuture;
+import java.net.InetSocketAddress;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BiFunction;
 
@@ -32,7 +33,9 @@ public interface Responses<R extends Response> {
   ClientResponse<? extends R> poll(long time, TimeUnit timeUnit);
   ClientResponse<? extends R> take();
   ClientResponse<? extends R> poll();
-  <A> CompletableFuture<A> poll(A initial, BiFunction<A, ClientResponse<? extends R>, A> op);
+  <A> Future<A> poll(A initial, BiFunction<A, ClientResponse<? extends R>, A> op);
   int size();
   boolean isEmpty();
+  Throwable error(InetSocketAddress address);
+  boolean hasErrors();
 }

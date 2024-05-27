@@ -25,15 +25,14 @@ package org.dauch.piola.sctp.client;
 import com.sun.nio.sctp.SctpMultiChannel;
 import org.dauch.piola.api.*;
 import org.dauch.piola.api.request.Request;
-import org.dauch.piola.api.response.Response;
-import org.dauch.piola.client.*;
+import org.dauch.piola.api.response.ErrorResponse;
+import org.dauch.piola.api.response.UnknownResponse;
+import org.dauch.piola.client.AbstractClient;
+import org.dauch.piola.client.ClientResponse;
 import org.dauch.piola.sctp.SctpUtils;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.util.concurrent.LinkedTransferQueue;
 
 import static com.sun.nio.sctp.MessageInfo.createOutgoing;
 import static java.lang.System.Logger.Level.INFO;
@@ -69,6 +68,13 @@ public final class SctpClient extends AbstractClient {
         logger.log(INFO, () -> "Shutdown sequence received: " + msg);
         throw new InterruptedException();
       }
+      receivedResponses.increment();
+      receivedSize.add(msg.bytes());
+      if (!msg.isComplete()) {
+        incompleteResponses.increment();
+        channel.shutdown(msg.association());
+        return;
+      }
       var serverId = buf.flip().getInt();
       var id = buf.getLong();
       var queue = responses.get(id);
@@ -77,31 +83,27 @@ public final class SctpClient extends AbstractClient {
       } else {
         var in = new SerializationContext();
         var rsp = ResponseFactory.read(buf, in);
+        switch (rsp) {
+          case ErrorResponse _ -> errorResponses.increment();
+          case UnknownResponse _ -> unknownResponses.increment();
+          default -> {}
+        }
         var out = SerializationContext.read(buf);
         var address = (InetSocketAddress) msg.address();
         queue.add(new ClientResponse<>(serverId, address, rsp, out, in));
       }
     } catch (Throwable e) {
+      unexpectedErrors.increment();
       channel.shutdown(msg.association());
       throw e;
     }
   }
 
   @Override
-  public <RQ extends Request<RS>, RS extends Response> SimpleResponses<RS> send(RQ rq, InetSocketAddress address) {
-    var id = ids.getAndIncrement();
-    var fetcher = new SimpleResponses<RS>(id, responses.computeIfAbsent(id, _ -> new LinkedTransferQueue<>()));
-    var responses = this.responses;
-    CLEANER.register(fetcher, () -> responses.remove(id));
-    var buf = writeBuffers.get();
-    try {
-      RequestFactory.write(rq, buf.putLong(id));
-      channel.send(buf.flip(), createOutgoing(address, streamNumber(rq)));
-    } catch (IOException e) {
-      throw new UncheckedIOException(e);
-    } finally {
-      writeBuffers.release(buf);
-    }
-    return fetcher;
+  protected void send(ByteBuffer buf, long id, Request<?> rq, InetSocketAddress addr) throws Exception {
+    RequestFactory.write(rq, buf.putLong(id));
+    var size = channel.send(buf.flip(), createOutgoing(addr, streamNumber(rq)));
+    sentRequests.increment();
+    sentSize.add(size);
   }
 }

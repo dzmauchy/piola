@@ -23,8 +23,8 @@ package org.dauch.piola.server;
  */
 
 import org.dauch.piola.api.request.*;
+import org.dauch.piola.api.response.ErrorResponse;
 import org.dauch.piola.api.response.Response;
-import org.dauch.piola.api.response.UnknownRequestResponse;
 import org.dauch.piola.buffer.BufferManager;
 import org.dauch.piola.util.*;
 
@@ -191,7 +191,7 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     switch (request) {
       case UnknownRequest r -> {
         unknownRequests.increment();
-        responses.accept(new UnknownRequestResponse(r.code()));
+        responses.accept(new ErrorResponse("Unknown request: " + r.code(), null));
       }
       case TopicCreateRequest r -> handler.createTopic(r, responses);
       case TopicDeleteRequest r -> handler.deleteTopic(r, responses);

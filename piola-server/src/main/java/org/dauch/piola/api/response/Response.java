@@ -24,8 +24,7 @@ package org.dauch.piola.api.response;
 
 public sealed interface Response permits
   ErrorResponse,
-  UnknownRequestResponse,
-  UnknownResponse,
+        UnknownResponse,
   TopicCreateResponse,
   TopicDeleteResponse,
   TopicGetResponse,

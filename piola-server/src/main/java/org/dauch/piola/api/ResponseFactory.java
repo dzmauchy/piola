@@ -38,7 +38,6 @@ public final class ResponseFactory {
       case 2 -> TopicDataResponseSerde.read(input, context);
       case 3 -> TopicAlreadyExistsResponseSerde.read(input, context);
       case 4 -> TopicNotFoundResponseSerde.read(input, context);
-      case Integer.MIN_VALUE + 1 -> UnknownRequestResponseSerde.read(input, context);
       case Integer.MIN_VALUE -> UnknownResponseSerde.read(input, context);
       default -> new UnknownResponse("Invalid code: " + code);
     };
@@ -52,7 +51,6 @@ public final class ResponseFactory {
       case TopicDataResponse r -> TopicDataResponseSerde.write(r, output.putInt(2));
       case TopicAlreadyExistsResponse r -> TopicAlreadyExistsResponseSerde.write(r, output.putInt(3));
       case TopicNotFoundResponse r -> TopicNotFoundResponseSerde.write(r, output.putInt(4));
-      case UnknownRequestResponse r -> UnknownRequestResponseSerde.write(r, output.putInt(Integer.MIN_VALUE + 1));
       case UnknownResponse r -> UnknownResponseSerde.write(r, output.putInt(Integer.MIN_VALUE));
     }
   }

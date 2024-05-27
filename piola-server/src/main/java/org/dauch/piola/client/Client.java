@@ -27,6 +27,6 @@ import org.dauch.piola.api.response.Response;
 
 import java.net.InetSocketAddress;
 
-public interface Client extends AutoCloseable {
-  <RQ extends Request<RS>, RS extends Response> Responses<RS> send(RQ request, InetSocketAddress address);
+public interface Client extends ClientMXBean, AutoCloseable {
+  <RQ extends Request<RS>, RS extends Response> Responses<RS> send(RQ request, InetSocketAddress... addresses);
 }
