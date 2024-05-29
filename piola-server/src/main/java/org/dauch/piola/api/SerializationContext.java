@@ -23,9 +23,9 @@ package org.dauch.piola.api;
  */
 
 import java.nio.ByteBuffer;
-import java.util.*;
-import java.util.stream.IntStream;
-import java.util.stream.Stream;
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.stream.*;
 
 import static java.util.Collections.binarySearch;
 import static java.util.Comparator.comparingInt;
@@ -37,7 +37,7 @@ public final class SerializationContext {
   private final ArrayList<SerializationContext> children = new ArrayList<>(0);
 
   public SerializationContext() {
-    this(-1);
+    this(0);
   }
 
   private SerializationContext(int id) {
@@ -76,60 +76,77 @@ public final class SerializationContext {
     }
   }
 
-  public static SerializationContext read(ByteBuffer buffer) {
-    var id = Byte.toUnsignedInt(buffer.get());
-    var set = BitSet.valueOf(buffer.slice(buffer.position(), Byte.toUnsignedInt(buffer.get())));
+  private static SerializationContext read(int id, ByteBuffer buffer) {
+    var len = Byte.toUnsignedInt(buffer.get());
+    var set = BitSet.valueOf(buffer.slice(buffer.position(), len));
     var ctx = new SerializationContext(id, set);
-    for (int i = 0, childrenCount = Byte.toUnsignedInt(buffer.get()); i < childrenCount; i++) {
-      ctx.children.add(SerializationContext.read(buffer));
+    buffer.position(buffer.position() + len);
+    while ((id = Byte.toUnsignedInt(buffer.get())) != 0) {
+      ctx.children.add(read(id, buffer));
     }
     return ctx;
   }
 
+  public static SerializationContext read(ByteBuffer buffer) {
+    return read(Byte.toUnsignedInt(buffer.get()), buffer);
+  }
+
   public boolean isEmpty() {
-    return unknownFields.isEmpty() && children.isEmpty();
+    return unknownFields.isEmpty() && children.stream().allMatch(SerializationContext::isEmpty);
   }
 
   public int unknownFieldsCount() {
     return unknownFields.size();
   }
 
-  public int childrenCount() {
-    return children.size();
-  }
-
-  public void normalize() {
-    children.removeIf(v -> {
-      v.normalize();
-      return v.isEmpty();
-    });
-  }
-
   public void write(ByteBuffer buffer) {
     var data = unknownFields.toByteArray();
-    buffer.put((byte) id).put((byte) data.length).put(data).put((byte) children.size());
+    buffer.put((byte) id).put((byte) data.length).put(data);
     children.forEach(v -> {
-      buffer.put((byte) v.id);
-      v.write(buffer);
+      if (!v.isEmpty()) {
+        v.write(buffer);
+      }
     });
+    buffer.put((byte) 0);
   }
 
   @Override
   public int hashCode() {
-    return unknownFields.hashCode() ^ children.hashCode();
+    return children()
+      .mapToInt(SerializationContext::hashCode)
+      .reduce(unknownFields.hashCode() ^ id, (a, b) -> 31 * a + b);
   }
 
   @Override
   public boolean equals(Object obj) {
-    if (obj instanceof SerializationContext that) {
-      return unknownFields.equals(that.unknownFields) && children.equals(that.children);
-    } else {
+    if (!(obj instanceof SerializationContext that)) {
       return false;
     }
+    if (!unknownFields.equals(that.unknownFields)) {
+      return false;
+    }
+    for (var thisChild : this.children) {
+      var i = binarySearch(that.children, thisChild, comparingInt(SerializationContext::id));
+      if (i < 0 && !thisChild.isEmpty() || i >= 0 && !that.children.get(i).equals(thisChild))
+        return false;
+    }
+    for (var thatChild : that.children) {
+      var i = binarySearch(this.children, thatChild, comparingInt(SerializationContext::id));
+      if (i < 0 && !thatChild.isEmpty() || i >= 0 && !this.children.get(i).equals(thatChild)) {
+        return false;
+      }
+    }
+    return true;
   }
 
   @Override
   public String toString() {
-    return "Ctx(%d,%s,%s)".formatted(id, unknownFields, children);
+    return "Ctx(%d,%s,%s)".formatted(
+      id,
+      unknownFields,
+      children()
+        .map(SerializationContext::toString)
+        .collect(Collectors.joining(",", "[", "]"))
+    );
   }
 }

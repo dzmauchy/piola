@@ -1,4 +1,4 @@
-package org.dauch.piola.attributes;
+package org.dauch.piola.api.response;
 
 /*-
  * #%L
@@ -22,22 +22,21 @@ package org.dauch.piola.attributes;
  * #L%
  */
 
-import java.util.function.Consumer;
+import org.dauch.piola.annotation.Id;
+import org.dauch.piola.annotation.Serde;
+import org.dauch.piola.attributes.Attrs;
 
-public final class FileAttr<V> implements Comparable<FileAttr<?>> {
+@Serde
+public record TopicResponse(
+  @Id(1) String topic,
+  @Id(2) Attrs attrs
+) implements
+  TopicCreateResponse,
+  TopicDeleteResponse,
+  TopicGetResponse,
+  TopicListResponse {
 
-  final String name;
-  final AttrCodec<V> codec;
-  final Consumer<V> validator;
-
-  public FileAttr(String name, AttrCodec<V> codec, Consumer<V> validator) {
-    this.name = name;
-    this.codec = codec;
-    this.validator = validator;
-  }
-
-  @Override
-  public int compareTo(FileAttr<?> o) {
-    return name.compareTo(o.name);
+  public boolean isEndOfInput() {
+    return topic.isEmpty() && attrs == null;
   }
 }

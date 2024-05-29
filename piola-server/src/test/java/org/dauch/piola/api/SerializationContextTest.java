@@ -27,6 +27,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
+import java.nio.ByteBuffer;
 import java.util.BitSet;
 import java.util.Random;
 import java.util.stream.IntStream;
@@ -52,9 +53,12 @@ class SerializationContextTest {
   static Stream<Arguments> unknownFields() {
     var random = new Random(0L);
     return IntStream.range(0, 100)
-      .mapToObj(_ -> new byte[32])
-      .peek(random::nextBytes)
-      .map(BitSet::valueOf)
+      .mapToObj(_ -> new BitSet())
+      .peek(set -> {
+        for (int i = 0, l = random.nextInt(100); i < l; i++) {
+          set.set(random.nextInt(1, 256));
+        }
+      })
       .map(Arguments::of);
   }
 
@@ -72,10 +76,42 @@ class SerializationContextTest {
       assertSame(expected, actual);
     }
     // then
-    assertFalse(ctx.isEmpty());
-    assertEquals(10, ctx.childrenCount());
-    ctx.normalize();
+    assertEquals(0L, ctx.children().count());
     assertTrue(ctx.isEmpty());
-    assertEquals(0, ctx.childrenCount());
+  }
+
+  @ParameterizedTest
+  @MethodSource
+  void serde(ByteBuffer buf, SerializationContext context) {
+    // given
+    context.write(buf.clear());
+    // when
+    var actual = SerializationContext.read(buf.flip());
+    // then
+    assertEquals(context, actual);
+  }
+
+  static Stream<Arguments> serde() {
+    var buf = ByteBuffer.allocateDirect(4096);
+    var random = new Random(0L);
+    var builder = Stream.<Arguments>builder();
+    builder.accept(Arguments.of(buf, new SerializationContext()));
+    for (int i = 0; i < 100; i++) {
+      var ctx = new SerializationContext();
+      for (int j = 0, l = random.nextInt(100); j < l; j++) {
+        if (random.nextBoolean()) {
+          ctx.addUnknownField(random.nextInt(1, 256));
+        } else {
+          var child = ctx.child(random.nextInt(1, 256));
+          if (random.nextBoolean()) {
+            for (int k = 0, m = random.nextInt(100); k < m; k++) {
+              child.addUnknownField(random.nextInt(1, 256));
+            }
+          }
+        }
+      }
+      builder.accept(Arguments.of(buf, ctx));
+    }
+    return builder.build();
   }
 }

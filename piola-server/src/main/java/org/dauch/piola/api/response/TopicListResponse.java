@@ -27,18 +27,18 @@ import org.dauch.piola.client.ClientResponse;
 import java.util.function.BiConsumer;
 import java.util.function.BiFunction;
 
-public sealed interface TopicListResponse extends Response permits ErrorResponse, TopicDataResponse {
+public sealed interface TopicListResponse extends Response permits ErrorResponse, TopicResponse {
 
-  static <A> BiFunction<A, ClientResponse<? extends TopicListResponse>, A> reduce(BiFunction<A, TopicDataResponse, A> f) {
+  static <A> BiFunction<A, ClientResponse<? extends TopicListResponse>, A> reduce(BiFunction<A, TopicResponse, A> f) {
     return (a, e) -> switch (e.response()) {
-      case TopicDataResponse r -> r.isEndOfInput() ? null : f.apply(a, r);
+      case TopicResponse r -> r.isEndOfInput() ? null : f.apply(a, r);
       case ErrorResponse r -> throw r.toException();
     };
   }
 
-  static <A> BiFunction<A, ClientResponse<? extends TopicListResponse>, A> collect(BiConsumer<A, TopicDataResponse> f) {
+  static <A> BiFunction<A, ClientResponse<? extends TopicListResponse>, A> collect(BiConsumer<A, TopicResponse> f) {
     return (a, e) -> switch (e.response()) {
-      case TopicDataResponse r -> {
+      case TopicResponse r -> {
         if (r.isEndOfInput()) yield null;
         else {
           f.accept(a, r);

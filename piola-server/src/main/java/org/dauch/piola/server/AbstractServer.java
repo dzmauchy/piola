@@ -197,7 +197,7 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
       case TopicDeleteRequest r -> handler.deleteTopic(r, responses);
       case TopicGetRequest r -> handler.getTopic(r, responses);
       case TopicListRequest r -> handler.listTopics(r, responses);
-      case SendDataRequest r -> handler.sendData(r, responses);
+      case SendDataRequest r -> handler.addData(r, element, responses);
     }
   }
 

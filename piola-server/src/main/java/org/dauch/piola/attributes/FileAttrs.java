@@ -22,80 +22,101 @@ package org.dauch.piola.attributes;
  * #L%
  */
 
-import org.dauch.piola.util.Serialization;
+import org.dauch.piola.exception.NoValueException;
 
 import java.nio.ByteBuffer;
-import java.util.TreeMap;
-import java.util.function.Supplier;
 
-public final class FileAttrs {
+public final class FileAttrs extends Attrs {
 
-  private final TreeMap<String, String> values = new TreeMap<>();
+  final ByteBuffer buffer;
+  int size;
 
-  public FileAttrs() {
+  public FileAttrs(ByteBuffer buffer) {
+    this.buffer = buffer;
+    this.size = size(buffer);
   }
 
-  public FileAttrs(Attributes attributes, AttrSet attrs) {
-    attrs.forEachKey(k -> {
-      var v = attributes.get(k);
-      if (v != null) {
-        values.put(k, v);
+  private static int size(ByteBuffer buffer) {
+    for (int i = 0, l = buffer.capacity() >>> 4; i < l; i++) {
+      var k = buffer.getLong(i << 4);
+      if (k == 0L) {
+        return i;
       }
-    });
-  }
-
-  public <V> FileAttrs put(FileAttr<V> attr, V value) {
-    attr.validator.accept(value);
-    values.put(attr.name, attr.codec.encode(value));
-    return this;
-  }
-
-  public <V> V get(FileAttr<V> attr) {
-    var value = values.get(attr.name);
-    if (value == null) return null;
-    var decoded = attr.codec.decode(value);
-    attr.validator.accept(decoded);
-    return decoded;
-  }
-
-  public <V> V get(FileAttr<V> attr, Supplier<V> defaultValue) {
-    var v = get(attr);
-    return v == null ? defaultValue.get() : v;
-  }
-
-  public static FileAttrs readFrom(ByteBuffer buffer) {
-    var attrs = new FileAttrs();
-    while (buffer.get() != 0) {
-      attrs.values.put(Serialization.read(buffer, (String) null), Serialization.read(buffer, (String) null));
     }
-    return attrs;
-  }
-
-  public void writeTo(ByteBuffer buffer) {
-    values.forEach((k, v) -> {
-      buffer.put((byte) 1);
-      Serialization.write(buffer, k);
-      Serialization.write(buffer, v);
-    });
-    buffer.put((byte) 0);
-  }
-
-  public void writeTo(Attributes attributes) {
-    values.forEach(attributes::write);
+    return buffer.capacity() >>> 4;
   }
 
   @Override
-  public int hashCode() {
-    return values.hashCode();
+  int size() {
+    return size;
   }
 
   @Override
-  public boolean equals(Object obj) {
-    return obj instanceof FileAttrs a && values.equals(a.values);
+  long getKeyByIndex(int index) {
+    return buffer.getLong(index << 4);
   }
 
   @Override
-  public String toString() {
-    return values.toString();
+  long getValueByIndex(int index) {
+    return buffer.getLong((index << 4) + 8);
+  }
+
+  public void update(SimpleAttrs attrs) {
+    var ks = attrs.keys;
+    var vs = attrs.values;
+    if (size == 0) {
+      size = ks.length;
+      buffer.position(0).limit(size << 4);
+      for (int i = 0, l = ks.length; i < l; i++) {
+        buffer.putLong(ks[i]).putLong(vs[i]);
+      }
+      return;
+    }
+    for (int i = 0, l = ks.length; i < l; i++) {
+      put(ks[i], vs[i]);
+    }
+  }
+
+  public void put(long key, long value) {
+    var i = binarySearch(key);
+    if (i >= 0) {
+      buffer.putLong((i << 4) + 8, value);
+    } else {
+      i = -(i + 1);
+      for (int j = size; j > i; j--) {
+        buffer.putLong(j << 4, buffer.getLong((j - 1) << 4));
+        buffer.putLong((j << 4) + 8, buffer.getLong(((j - 1) << 4) + 8));
+      }
+      buffer.putLong(i << 4, key);
+      buffer.putLong((i << 4) + 8, value);
+      size++;
+    }
+  }
+
+  @Override
+  long readRaw(long key) throws NoValueException {
+    int i = binarySearch(key);
+    if (i >= 0) {
+      return buffer.getLong((i << 4) + 8);
+    } else {
+      throw NoValueException.NO_VALUE_EXCEPTION;
+    }
+  }
+
+  private int binarySearch(long key) {
+    int l = 0, h = size - 1;
+    while (l <= h) {
+      int m = (l + h) >>> 1;
+      long v = buffer.getLong(m << 4);
+      if (key < v) l = m + 1;
+      else if (key > v) h = m - 1;
+      else return m;
+    }
+    return -(l + 1);
+  }
+
+  @Override
+  public void write(ByteBuffer buffer) {
+    buffer.putInt(size).put(this.buffer.position(0).limit(size << 4));
   }
 }

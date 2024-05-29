@@ -35,7 +35,8 @@ import java.util.Properties;
 @Conf
 public record UdpServerConfig(
   @Default("0") int id,
-  @Default("addressDefault()") InetSocketAddress address,
+  @Default("INET") StandardProtocolFamily protocolFamily,
+  @Default("addressDefault(protocolFamily)") InetSocketAddress address,
   @Default("64") int backlog,
   @Default("60") int linger,
   @Default("1 << 20") int rcvBufSize,
@@ -46,7 +47,6 @@ public record UdpServerConfig(
   @Default("0.25f") float freeRatio,
   @Default("bufferDirDefault()") Path bufferDir,
   @Default("baseDirDefault()") Path baseDir,
-  @Default("INET") StandardProtocolFamily protocolFamily,
   NetworkInterface multicastNetworkInterface,
   @Default("255") int multicastTtl,
   @Default("true") boolean multicastLoop,
@@ -65,8 +65,12 @@ public record UdpServerConfig(
     return fromProperties("piola.server");
   }
 
-  public static InetSocketAddress addressDefault() {
-    return new InetSocketAddress(InetAddress.ofLiteral("0.0.0.0"), 0);
+  public static InetSocketAddress addressDefault(StandardProtocolFamily protocolFamily) {
+    return switch (protocolFamily) {
+      case INET6 -> new InetSocketAddress(Inet4Address.ofLiteral("::"), 0);
+      case INET -> new InetSocketAddress(Inet6Address.ofLiteral("0.0.0.0"), 0);
+      case UNIX -> throw new UnsupportedOperationException("Unsupported protocol family: " + protocolFamily);
+    };
   }
 
   public static Path bufferDirDefault() {

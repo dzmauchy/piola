@@ -24,46 +24,50 @@ package org.dauch.piola.server;
 
 import org.dauch.piola.api.request.*;
 import org.dauch.piola.api.response.*;
-import org.dauch.piola.attributes.Attributes;
 import org.dauch.piola.attributes.FileAttrs;
+import org.dauch.piola.attributes.SimpleAttrs;
 import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.validation.TopicValidation;
 
-import java.nio.ByteBuffer;
 import java.nio.file.*;
-import java.nio.file.attribute.UserDefinedFileAttributeView;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.EnumSet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Consumer;
+import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.ERROR;
-import static org.dauch.piola.api.attributes.TopicFileAttrs.ALL_TOPIC_ATTRS;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
+import static java.nio.channels.FileChannel.open;
+import static java.nio.file.StandardOpenOption.READ;
 
 public final class ServerHandler implements AutoCloseable {
 
   private final System.Logger logger;
   private final Path baseDir;
-  private final ConcurrentHashMap<String, TopicData> topics = new ConcurrentHashMap<>(64, 0.5f, 16);
+  private final ReentrantReadWriteLock[] locks = new ReentrantReadWriteLock[128];
+  private final TopicData[] topics = new TopicData[locks.length];
 
   public ServerHandler(System.Logger logger, Path baseDir) throws Exception {
     this.logger = logger;
     this.baseDir = baseDir;
     Files.createDirectories(baseDir);
-  }
-
-  private TopicData byTopic(String topic) {
-    return new TopicData(baseDir.resolve(topic));
+    for (int i = 0; i < locks.length; i++) {
+      locks[i] = new ReentrantReadWriteLock();
+    }
   }
 
   public void createTopic(TopicCreateRequest request, Consumer<? super Response> consumer) {
-    TopicValidation.validate(request);
-    consumer.accept(topics.computeIfAbsent(request.topic(), this::byTopic).withWriteLock(d -> {
+    consumer.accept(withWriteLock(request.topic(), d -> {
       try {
-        d.create();
-        var attrs = d.attributes();
-        request.attrs().writeTo(attrs);
-        return new TopicDataResponse(request.topic(), request.attrs());
-      } catch (FileAlreadyExistsException _) {
-        return new TopicAlreadyExistsResponse();
+        if (!d.exists()) {
+          d.create();
+        }
+        var attrs = d.readFileAttrs();
+        if (attrs == null)
+          throw new IllegalStateException("Unable to read attributes");
+        if (request.attrs() instanceof SimpleAttrs a)
+          attrs.update(a);
+        return new TopicResponse(request.topic(), attrs);
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to create topic in " + d, e);
         return new ErrorResponse("Topic creation error", ExceptionData.from(e));
@@ -72,41 +76,46 @@ public final class ServerHandler implements AutoCloseable {
   }
 
   public void deleteTopic(TopicDeleteRequest request, Consumer<? super Response> consumer) {
-    TopicValidation.validate(request);
-    consumer.accept(topics.computeIfAbsent(request.topic(), this::byTopic).withWriteLock(d -> {
+    consumer.accept(withWriteLock(request.topic(), d -> {
       try {
         if (d.exists()) {
-          var attrs = d.attributes();
-          var fileAttrs = new FileAttrs(attrs, ALL_TOPIC_ATTRS);
-          return d.delete() ? new TopicDataResponse(request.topic(), fileAttrs) : new TopicNotFoundResponse();
+          var fileAttrs = d.readFileAttrs();
+          if (fileAttrs == null)
+            throw new IllegalStateException("Unable to read attributes");
+          var attrs = new SimpleAttrs(fileAttrs);
+          if (!d.delete()) {
+            throw new IllegalStateException("Unable to delete the topic directory");
+          }
+          return new TopicResponse(request.topic(), attrs);
+        } else {
+          return new TopicNotFoundResponse();
         }
-        return d.delete() ? new TopicDataResponse(request.topic(), new FileAttrs()) : new TopicNotFoundResponse();
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to delete the topic " + request.topic(), e);
         return new ErrorResponse("Topic deletion error", ExceptionData.from(e));
+      } finally {
+        removeTopicData(request.topic());
       }
     }));
   }
 
   public void getTopic(TopicGetRequest request, Consumer<? super Response> consumer) {
-    TopicValidation.validate(request);
-    consumer.accept(topics.computeIfAbsent(request.topic(), this::byTopic).withReadLock(d -> {
+    consumer.accept(withReadLock(request.topic(), d -> {
       try {
-        if (d.exists()) {
-          var attrs = d.attributes();
-          var fileAttrs = new FileAttrs(attrs, ALL_TOPIC_ATTRS);
-          return new TopicDataResponse(request.topic(), fileAttrs);
-        }
-        return new TopicNotFoundResponse();
+        if (d == null)
+          return new TopicNotFoundResponse();
+        var fileAttrs = d.readFileAttrs();
+        if (fileAttrs == null)
+          throw new IllegalStateException("Unable to read attributes");
+        return new TopicResponse(request.topic(), fileAttrs);
       } catch (Throwable e) {
-        logger.log(ERROR, () -> "Unable to delete the topic " + request.topic(), e);
-        return new ErrorResponse("Topic deletion error", ExceptionData.from(e));
+        logger.log(ERROR, () -> "Unable to get the topic " + request.topic(), e);
+        return new ErrorResponse("Topic getting error", ExceptionData.from(e));
       }
     }));
   }
 
   public void listTopics(TopicListRequest request, Consumer<? super Response> consumer) throws Exception {
-    var buf = ByteBuffer.allocate(256);
     try (var ds = Files.newDirectoryStream(baseDir, Files::isDirectory)) {
       for (var dir : ds) {
         var topic = dir.getFileName().toString();
@@ -125,15 +134,71 @@ public final class ServerHandler implements AutoCloseable {
             continue;
           }
         }
-        var attrs = new Attributes(dir, Files.getFileAttributeView(dir, UserDefinedFileAttributeView.class), buf);
-        var fileAttrs = new FileAttrs(attrs, ALL_TOPIC_ATTRS);
-        consumer.accept(new TopicDataResponse(topic, fileAttrs));
+        var attrsFile = dir.resolve("attributes.data");
+        try (var ch = open(attrsFile, EnumSet.of(READ))) {
+          var buffer = ch.map(READ_ONLY, 0L, ch.size());
+          consumer.accept(new TopicResponse(topic, new FileAttrs(buffer)));
+        } catch (NoSuchFileException _) {
+        }
       }
     }
-    consumer.accept(new TopicDataResponse("", null));
+    consumer.accept(new TopicResponse("", null));
   }
 
-  public void sendData(SendDataRequest request, Consumer<? super Response> consumer) {
+  public void addData(SendDataRequest request, ServerRequest sr, Consumer<? super Response> consumer) {
+  }
+
+  private <T> T withWriteLock(String topic, Function<TopicData, T> f) {
+    var index = Integer.remainderUnsigned(topic.hashCode(), locks.length);
+    TopicValidation.validateName(topic);
+    var dir = baseDir.resolve(topic);
+    var lock = locks[index];
+    lock.writeLock().lock();
+    try {
+      for (var d = topics[index]; d != null; d = d.next) {
+        if (d.topic.equals(topic)) {
+          return f.apply(d);
+        }
+        if (d.next == null) {
+          return f.apply(d.next = new TopicData(dir, topic));
+        }
+      }
+      return f.apply(topics[index] = new TopicData(dir, topic));
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  private <T> T withReadLock(String topic, Function<TopicData, T> f) {
+    var index = Integer.remainderUnsigned(topic.hashCode(), locks.length);
+    TopicValidation.validateName(topic);
+    var lock = locks[index];
+    lock.readLock().lock();
+    try {
+      for (var d = topics[index]; d != null; d = d.next) {
+        if (d.topic.equals(topic)) {
+          return f.apply(d);
+        }
+      }
+      return f.apply(null);
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  private void removeTopicData(String topic) {
+    var index = Integer.remainderUnsigned(topic.hashCode(), locks.length);
+    var d = topics[index];
+    if (d.topic.equals(topic)) {
+      topics[index] = d.next;
+      return;
+    }
+    for (; ; d = d.next) {
+      if (d.next.topic.equals(topic)) {
+        d.next = d.next.next;
+        return;
+      }
+    }
   }
 
   @Override

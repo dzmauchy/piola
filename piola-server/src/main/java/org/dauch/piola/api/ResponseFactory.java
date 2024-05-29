@@ -33,25 +33,26 @@ public final class ResponseFactory {
 
   public static Response read(ByteBuffer input, SerializationContext context) {
     var code = input.getInt();
-    var r = switch (code) {
+    return switch (code) {
+      // common codes
       case 1 -> ErrorResponseSerde.read(input, context);
-      case 2 -> TopicDataResponseSerde.read(input, context);
-      case 3 -> TopicAlreadyExistsResponseSerde.read(input, context);
-      case 4 -> TopicNotFoundResponseSerde.read(input, context);
-      case Integer.MIN_VALUE -> UnknownResponseSerde.read(input, context);
-      default -> new UnknownResponse("Invalid code: " + code);
+      case 2 -> UnknownResponseSerde.read(input, context);
+      // topics
+      case 1000 -> TopicResponseSerde.read(input, context);
+      case 1001 -> TopicNotFoundResponseSerde.read(input, context);
+      // otherwise
+      default -> new UnknownResponse(code);
     };
-    context.normalize();
-    return r;
   }
 
   public static void write(Response response, ByteBuffer output) {
     switch (response) {
+      // common codes
       case ErrorResponse r -> ErrorResponseSerde.write(r, output.putInt(1));
-      case TopicDataResponse r -> TopicDataResponseSerde.write(r, output.putInt(2));
-      case TopicAlreadyExistsResponse r -> TopicAlreadyExistsResponseSerde.write(r, output.putInt(3));
-      case TopicNotFoundResponse r -> TopicNotFoundResponseSerde.write(r, output.putInt(4));
-      case UnknownResponse r -> UnknownResponseSerde.write(r, output.putInt(Integer.MIN_VALUE));
+      case UnknownResponse r -> UnknownResponseSerde.write(r, output.putInt(2));
+      // topics
+      case TopicResponse r -> TopicResponseSerde.write(r, output.putInt(1000));
+      case TopicNotFoundResponse r -> TopicNotFoundResponseSerde.write(r, output.putInt(1001));
     }
   }
 }

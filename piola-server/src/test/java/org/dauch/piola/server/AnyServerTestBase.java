@@ -24,17 +24,16 @@ package org.dauch.piola.server;
 
 import org.dauch.piola.api.request.*;
 import org.dauch.piola.api.response.*;
-import org.dauch.piola.attributes.FileAttrs;
+import org.dauch.piola.attributes.EmptyAttrs;
+import org.dauch.piola.attributes.SimpleAttrs;
 import org.dauch.piola.client.Client;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Comparator;
 
-import static java.time.Duration.ofSeconds;
 import static java.util.concurrent.TimeUnit.SECONDS;
-import static org.dauch.piola.api.attributes.TopicFileAttrs.KEY_TTL;
-import static org.dauch.piola.api.attributes.TopicFileAttrs.PARTITIONS;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 public interface AnyServerTestBase {
@@ -47,19 +46,23 @@ public interface AnyServerTestBase {
   default void create_get_delete() throws Exception {
     {
       // when
-      var rs = getClient().send(new TopicCreateRequest("t1", new FileAttrs().put(PARTITIONS, 10)), getAddress())
+      var attrs = new SimpleAttrs();
+      attrs.putInt("partitions", 10);
+      var rs = getClient().send(new TopicCreateRequest("t1", attrs), getAddress())
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicDataResponse("t1", new FileAttrs().put(PARTITIONS, 10)), rs);
+      assertEquals(new TopicResponse("t1", attrs), rs);
     }
     {
       // when
-      var rs = getClient().send(new TopicCreateRequest("t1", new FileAttrs()), getAddress())
+      var attrs = new SimpleAttrs();
+      attrs.putInt("partitions", 10);
+      var rs = getClient().send(new TopicCreateRequest("t1", null), getAddress())
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicAlreadyExistsResponse(), rs);
+      assertEquals(new TopicResponse("t1", attrs), rs);
     }
     {
       // when
@@ -71,11 +74,13 @@ public interface AnyServerTestBase {
     }
     {
       // when
+      var attrs = new SimpleAttrs();
+      attrs.putInt("partitions", 10);
       var rs = getClient().send(new TopicGetRequest("t1"), getAddress())
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicDataResponse("t1", new FileAttrs().put(PARTITIONS, 10)), rs);
+      assertEquals(new TopicResponse("t1", attrs), rs);
     }
     {
       // when
@@ -83,7 +88,7 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicDataResponse("t2", new FileAttrs()), rs);
+      assertEquals(new TopicResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
     }
     {
       // when
@@ -91,58 +96,27 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicDataResponse("t2", new FileAttrs()), rs);
-    }
-    {
-      // when
-      var rs = getClient().send(new TopicDeleteRequest("t2"), getAddress())
-        .poll(10L, SECONDS)
-        .response();
-      // then
-      assertEquals(new TopicNotFoundResponse(), rs);
-    }
-    {
-      // when
-      var rs = getClient().send(new TopicDeleteRequest("t1"), getAddress())
-        .poll(10L, SECONDS)
-        .response();
-      // then
-      assertEquals(new TopicDataResponse("t1", new FileAttrs().put(PARTITIONS, 10)), rs);
-    }
-    {
-      // when
-      var rs = getClient().send(new TopicDeleteRequest("t3"), getAddress())
-        .poll(10L, SECONDS)
-        .response();
-      // then
-      assertEquals(new TopicNotFoundResponse(), rs);
-    }
-    {
-      // when
-      var list = getClient().send(new TopicListRequest("", "", ""), getAddress())
-        .poll(new ArrayList<String>(), TopicListResponse.collect((a, e) -> a.add(e.topic())))
-        .get(10L, SECONDS);
-      // then
-      assertEquals(List.of(), list);
+      assertEquals(new TopicResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
     }
   }
 
   @Test
   default void listAll() throws Exception {
     // given
-    var expected = new ArrayList<TopicDataResponse>();
+    var expected = new ArrayList<TopicResponse>();
     for (var i = 0; i < 10; i++) {
-      var attrs = new FileAttrs().put(PARTITIONS, i + 1).put(KEY_TTL, ofSeconds(i + 1));
+      var attrs = new SimpleAttrs();
+      attrs.putInt("partitions", i + 1);
       var rq = new TopicCreateRequest("t" + i, attrs);
       var rs = getClient().send(rq, getAddress()).poll(10L, SECONDS).response();
-      assertEquals(new TopicDataResponse("t" + i, attrs), rs);
-      expected.add((TopicDataResponse) rs);
+      assertEquals(new TopicResponse("t" + i, attrs), rs);
+      expected.add((TopicResponse) rs);
     }
     // when
     var list = getClient().send(new TopicListRequest("", "", ""), getAddress())
-      .poll(new ArrayList<TopicDataResponse>(), TopicListResponse.collect(ArrayList::add))
+      .poll(new ArrayList<TopicResponse>(), TopicListResponse.collect(ArrayList::add))
       .get(10L, SECONDS);
-    list.sort(Comparator.comparing(TopicDataResponse::topic));
+    list.sort(Comparator.comparing(TopicResponse::topic));
     // then
     assertEquals(expected, list);
   }

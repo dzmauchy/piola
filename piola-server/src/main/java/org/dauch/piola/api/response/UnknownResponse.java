@@ -26,5 +26,5 @@ import org.dauch.piola.annotation.Id;
 import org.dauch.piola.annotation.Serde;
 
 @Serde
-public record UnknownResponse(@Id(1) String message) implements Response {
+public record UnknownResponse(@Id(1) int code) implements Response {
 }

@@ -22,68 +22,71 @@ package org.dauch.piola.server;
  * #L%
  */
 
-import org.dauch.piola.attributes.Attributes;
+import org.dauch.piola.attributes.FileAttrs;
 import org.dauch.piola.util.MoreFiles;
 
 import java.io.IOException;
-import java.nio.ByteBuffer;
+import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
-import java.nio.file.attribute.UserDefinedFileAttributeView;
 import java.nio.file.spi.FileSystemProvider;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Function;
+import java.util.EnumSet;
+
+import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
+import static java.nio.channels.FileChannel.open;
+import static java.nio.file.StandardOpenOption.*;
 
 final class TopicData {
 
-  private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
-  private final ByteBuffer buffer = ByteBuffer.allocateDirect(256);
-
   private final Path directory;
   private final FileSystemProvider provider;
-  private final UserDefinedFileAttributeView attrView;
+  private FileAttrs attrs;
+  final String topic;
+  TopicData next;
 
-  TopicData(Path dir) {
-    directory = dir;
-    provider = dir.getFileSystem().provider();
-    attrView = provider.getFileAttributeView(dir, UserDefinedFileAttributeView.class);
+  TopicData(Path directory, String topic) {
+    this.directory = directory;
+    this.provider = directory.getFileSystem().provider();
+    this.topic = topic;
   }
 
-  Attributes attributes() {
-    return new Attributes(directory, attrView, buffer);
+  FileAttrs readFileAttrs() throws Exception {
+    if (attrs != null) {
+      return attrs;
+    }
+    var attrsFile = directory.resolve("attributes.data");
+    if (provider.exists(attrsFile)) {
+      try (var ch = open(attrsFile, EnumSet.of(READ, WRITE))) {
+        return attrs = new FileAttrs(ch.map(READ_WRITE, 0L, ch.size()));
+      } catch (NoSuchFileException _) {
+        return null;
+      }
+    } else if (provider.exists(directory)) {
+      try (var ch = open(attrsFile, EnumSet.of(READ, WRITE, CREATE_NEW, SPARSE))) {
+        return attrs = new FileAttrs(ch.map(READ_WRITE, 0L, 1L << 16));
+      }
+    }
+    return null;
   }
 
-  void create() throws IOException {
-    provider.createDirectory(directory);
+  boolean delete() throws IOException {
+    if (MoreFiles.deleteRecursively(directory)) {
+      attrs = null;
+      return true;
+    } else {
+      return false;
+    }
   }
 
   boolean exists() {
     return provider.exists(directory);
   }
 
-  boolean delete() throws IOException {
-    return MoreFiles.deleteRecursively(directory);
-  }
-
-  <T> T withWriteLock(Function<TopicData, T> supplier) {
-    lock.writeLock().lock();
-    try {
-      return supplier.apply(this);
-    } finally {
-      lock.writeLock().unlock();
-    }
-  }
-
-  <T> T withReadLock(Function<TopicData, T> supplier) {
-    lock.readLock().lock();
-    try {
-      return supplier.apply(this);
-    } finally {
-      lock.readLock().unlock();
-    }
+  void create() throws Exception {
+    provider.createDirectory(directory);
   }
 
   @Override
   public String toString() {
-    return directory.toString();
+    return topic;
   }
 }

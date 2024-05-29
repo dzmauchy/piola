@@ -23,7 +23,7 @@ package org.dauch.piola.api.response;
  */
 
 public sealed interface TopicGetResponse extends Response permits
-  TopicDataResponse,
+  TopicResponse,
   TopicNotFoundResponse,
   ErrorResponse {
 }

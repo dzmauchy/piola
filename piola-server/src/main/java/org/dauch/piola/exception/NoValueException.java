@@ -1,4 +1,4 @@
-package org.dauch.piola.api.response;
+package org.dauch.piola.exception;
 
 /*-
  * #%L
@@ -22,21 +22,11 @@ package org.dauch.piola.api.response;
  * #L%
  */
 
-import org.dauch.piola.annotation.Id;
-import org.dauch.piola.annotation.Serde;
-import org.dauch.piola.attributes.FileAttrs;
+public final class NoValueException extends Exception {
 
-@Serde
-public record TopicDataResponse(
-  @Id(1) String topic,
-  @Id(2) FileAttrs attrs
-) implements
-  TopicCreateResponse,
-  TopicDeleteResponse,
-  TopicGetResponse,
-  TopicListResponse {
+  public static final NoValueException NO_VALUE_EXCEPTION = new NoValueException();
 
-  public boolean isEndOfInput() {
-    return topic.isEmpty() && attrs == null;
+  private NoValueException() {
+    super("No value", null, false, false);
   }
 }

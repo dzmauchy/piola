@@ -27,7 +27,6 @@ import org.dauch.piola.sctp.client.SctpClient;
 import org.dauch.piola.sctp.client.SctpClientConfig;
 import org.dauch.piola.sctp.server.SctpServer;
 import org.dauch.piola.sctp.server.SctpServerConfig;
-import org.dauch.piola.test.UserDirTempDirFactory;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -48,7 +47,7 @@ public abstract class SctpTestBase {
   @Getter protected InetSocketAddress address;
 
   @BeforeEach
-  protected void initServer(@TempDir(factory = UserDirTempDirFactory.class) Path baseDir, @TempDir Path bufferDir) {
+  protected void initServer(@TempDir Path baseDir, @TempDir Path bufferDir) {
     var props = new Properties();
     props.setProperty("test.baseDir", baseDir.toString());
     props.setProperty("test.bufferDir", bufferDir.toString());

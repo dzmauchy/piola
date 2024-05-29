@@ -24,12 +24,16 @@ package org.dauch.piola.api.request;
 
 import org.dauch.piola.annotation.*;
 import org.dauch.piola.api.response.TopicCreateResponse;
-import org.dauch.piola.attributes.FileAttrs;
+import org.dauch.piola.attributes.Attrs;
+import org.dauch.piola.attributes.EmptyAttrs;
 
 @Serde
 public record TopicCreateRequest(
   @Id(0x01) @Default("\"default\"") String topic,
-  @Id(0x02) @Default("DEFAULT_ATTRS") FileAttrs attrs) implements Request<TopicCreateResponse> {
+  @Id(0x02) @Default("emptyAttrs()") Attrs attrs
+) implements Request<TopicCreateResponse> {
 
-  public static final FileAttrs DEFAULT_ATTRS = new FileAttrs();
+  public static EmptyAttrs emptyAttrs() {
+    return EmptyAttrs.EMPTY_ATTRS;
+  }
 }

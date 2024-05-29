@@ -10,12 +10,12 @@ package org.dauch.piola.validation;
  * it under the terms of the GNU General Public License as
  * published by the Free Software Foundation, either version 3 of the
  * License, or (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public
  * License along with this program.  If not, see
  * <http://www.gnu.org/licenses/gpl-3.0.html>.
@@ -31,18 +31,18 @@ public final class TopicValidation {
   }
 
   public static void validate(TopicCreateRequest request) {
-    validateName(request.topic());
   }
 
   public static void validate(TopicDeleteRequest request) {
-    validateName(request.topic());
   }
 
   public static void validate(TopicGetRequest request) {
-    validateName(request.topic());
   }
 
-  private static void validateName(String topic) {
+  public static void validateName(String topic) {
+    if (topic == null) {
+      throw new NullPointerException("Topic name cannot be null");
+    }
     if (topic.length() > 256) {
       throw new ValidationException("Invalid topic length: " + topic.length(), null);
     }
