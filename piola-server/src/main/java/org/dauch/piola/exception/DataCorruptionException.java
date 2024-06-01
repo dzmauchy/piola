@@ -1,4 +1,4 @@
-package org.dauch.piola.udp.server;
+package org.dauch.piola.exception;
 
 /*-
  * #%L
@@ -22,29 +22,9 @@ package org.dauch.piola.udp.server;
  * #L%
  */
 
-import org.dauch.piola.api.SerializationContext;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.server.ServerRequest;
-import org.dauch.piola.udp.fragment.MsgKey;
+public class DataCorruptionException extends RuntimeException {
 
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
-
-public record UdpRq(
-  MsgKey key,
-  InetSocketAddress address,
-  Request<?> request,
-  ByteBuffer buffer,
-  SerializationContext context
-) implements ServerRequest {
-
-  @Override
-  public long id() {
-    return key.id();
-  }
-
-  @Override
-  public int stream() {
-    return key.stream();
+  public DataCorruptionException(String message, Throwable cause) {
+    super(message, cause, true, false);
   }
 }

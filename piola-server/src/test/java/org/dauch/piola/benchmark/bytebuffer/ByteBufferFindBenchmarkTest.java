@@ -1,4 +1,4 @@
-package org.dauch.piola.udp.server;
+package org.dauch.piola.benchmark.bytebuffer;
 
 /*-
  * #%L
@@ -22,29 +22,14 @@ package org.dauch.piola.udp.server;
  * #L%
  */
 
-import org.dauch.piola.api.SerializationContext;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.server.ServerRequest;
-import org.dauch.piola.udp.fragment.MsgKey;
+import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
+@Tag("benchmark")
+class ByteBufferFindBenchmarkTest {
 
-public record UdpRq(
-  MsgKey key,
-  InetSocketAddress address,
-  Request<?> request,
-  ByteBuffer buffer,
-  SerializationContext context
-) implements ServerRequest {
-
-  @Override
-  public long id() {
-    return key.id();
-  }
-
-  @Override
-  public int stream() {
-    return key.stream();
+  @Test
+  void benchmark() throws Exception {
+    ByteBufferFindBenchmark.main();
   }
 }

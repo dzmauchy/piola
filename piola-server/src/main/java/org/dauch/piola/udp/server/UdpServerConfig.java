@@ -50,7 +50,10 @@ public record UdpServerConfig(
   NetworkInterface multicastNetworkInterface,
   @Default("255") int multicastTtl,
   @Default("true") boolean multicastLoop,
-  @Default("multicastGroupDefault()") InetAddress multicastGroup
+  @Default("multicastGroupDefault()") InetAddress multicastGroup,
+  @Default("60") int fragmentTimeout,
+  @Default("65536") int maxFragmentSize,
+  @Default("bufferCount * 16") int fragmentBufferCount
 ) implements ServerClientConfig, ServerConfig {
 
   public static UdpServerConfig fromProperties(String prefix, Properties properties) {

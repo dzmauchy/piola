@@ -23,6 +23,6 @@ package org.dauch.piola.api.response;
  */
 
 public sealed interface TopicCreateResponse extends Response permits
-        TopicResponse,
+  TopicInfoResponse,
   ErrorResponse {
 }

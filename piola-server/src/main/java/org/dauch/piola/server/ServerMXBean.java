@@ -30,6 +30,7 @@ public interface ServerMXBean {
   BigInteger getUnknownRequests();
   BigInteger getBrokenRequests();
   BigInteger getIncompleteRequests();
+  BigInteger getIncompleteResponses();
   BigInteger getSentMessages();
   BigInteger getReceivedSize();
   BigInteger getSentSize();

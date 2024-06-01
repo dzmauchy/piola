@@ -52,7 +52,7 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicResponse("t1", attrs), rs);
+      assertEquals(new TopicInfoResponse("t1", attrs), rs);
     }
     {
       // when
@@ -62,7 +62,7 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicResponse("t1", attrs), rs);
+      assertEquals(new TopicInfoResponse("t1", attrs), rs);
     }
     {
       // when
@@ -80,7 +80,7 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicResponse("t1", attrs), rs);
+      assertEquals(new TopicInfoResponse("t1", attrs), rs);
     }
     {
       // when
@@ -88,7 +88,7 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
+      assertEquals(new TopicInfoResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
     }
     {
       // when
@@ -96,27 +96,27 @@ public interface AnyServerTestBase {
         .poll(10L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
+      assertEquals(new TopicInfoResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
     }
   }
 
   @Test
   default void listAll() throws Exception {
     // given
-    var expected = new ArrayList<TopicResponse>();
+    var expected = new ArrayList<TopicInfoResponse>();
     for (var i = 0; i < 10; i++) {
       var attrs = new SimpleAttrs();
       attrs.putInt("partitions", i + 1);
       var rq = new TopicCreateRequest("t" + i, attrs);
       var rs = getClient().send(rq, getAddress()).poll(10L, SECONDS).response();
-      assertEquals(new TopicResponse("t" + i, attrs), rs);
-      expected.add((TopicResponse) rs);
+      assertEquals(new TopicInfoResponse("t" + i, attrs), rs);
+      expected.add((TopicInfoResponse) rs);
     }
     // when
     var list = getClient().send(new TopicListRequest("", "", ""), getAddress())
-      .poll(new ArrayList<TopicResponse>(), TopicListResponse.collect(ArrayList::add))
+      .poll(new ArrayList<TopicInfoResponse>(), TopicListResponse.collect(ArrayList::add))
       .get(10L, SECONDS);
-    list.sort(Comparator.comparing(TopicResponse::topic));
+    list.sort(Comparator.comparing(TopicInfoResponse::topic));
     // then
     assertEquals(expected, list);
   }

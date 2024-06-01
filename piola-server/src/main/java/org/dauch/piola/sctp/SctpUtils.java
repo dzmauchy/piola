@@ -92,7 +92,7 @@ public interface SctpUtils {
       // do not treat X.255.255.255 as a loopback address
       return addr[1] != -1 || addr[2] != -1 || addr[3] != -1;
     } else {
-      return false;
+      return a.getAddress().isLoopbackAddress();
     }
   }
 }

@@ -27,7 +27,7 @@ import org.dauch.piola.annotation.Serde;
 import org.dauch.piola.attributes.Attrs;
 
 @Serde
-public record TopicResponse(
+public record TopicInfoResponse(
   @Id(1) String topic,
   @Id(2) Attrs attrs
 ) implements

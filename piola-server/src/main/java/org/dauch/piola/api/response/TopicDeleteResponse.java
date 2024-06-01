@@ -23,7 +23,7 @@ package org.dauch.piola.api.response;
  */
 
 public sealed interface TopicDeleteResponse extends Response permits
-        TopicResponse,
+  TopicInfoResponse,
   TopicNotFoundResponse,
   ErrorResponse {
 }

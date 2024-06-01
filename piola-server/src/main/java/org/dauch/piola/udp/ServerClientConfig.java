@@ -23,14 +23,23 @@ package org.dauch.piola.udp;
  */
 
 import org.dauch.piola.buffer.BufferConfig;
+import org.dauch.piola.buffer.BufferManager;
 
 import java.net.NetworkInterface;
 
 public interface ServerClientConfig extends BufferConfig {
+
   int rcvBufSize();
   int sendBufSize();
   int linger();
   NetworkInterface multicastNetworkInterface();
   int multicastTtl();
   boolean multicastLoop();
+  int fragmentTimeout();
+  int maxFragmentSize();
+  int fragmentBufferCount();
+
+  default BufferManager fragmentBuffers() {
+    return new BufferManager("udp-", bufferDir(), fragmentBufferCount(), maxFragmentSize(), 0.5f);
+  }
 }

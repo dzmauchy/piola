@@ -38,7 +38,7 @@ public final class ResponseFactory {
       case 1 -> ErrorResponseSerde.read(input, context);
       case 2 -> UnknownResponseSerde.read(input, context);
       // topics
-      case 1000 -> TopicResponseSerde.read(input, context);
+      case 1000 -> TopicInfoResponseSerde.read(input, context);
       case 1001 -> TopicNotFoundResponseSerde.read(input, context);
       // otherwise
       default -> new UnknownResponse(code);
@@ -51,7 +51,7 @@ public final class ResponseFactory {
       case ErrorResponse r -> ErrorResponseSerde.write(r, output.putInt(1));
       case UnknownResponse r -> UnknownResponseSerde.write(r, output.putInt(2));
       // topics
-      case TopicResponse r -> TopicResponseSerde.write(r, output.putInt(1000));
+      case TopicInfoResponse r -> TopicInfoResponseSerde.write(r, output.putInt(1000));
       case TopicNotFoundResponse r -> TopicNotFoundResponseSerde.write(r, output.putInt(1001));
     }
   }

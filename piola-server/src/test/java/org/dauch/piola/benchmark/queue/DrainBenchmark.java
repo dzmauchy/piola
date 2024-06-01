@@ -36,6 +36,8 @@ import java.util.concurrent.TimeUnit;
 @Fork(value = 1, jvmArgs = "-Xmx4g")
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MICROSECONDS)
+@Measurement(iterations = 3)
+@Warmup(iterations = 3)
 public class DrainBenchmark {
 
   private static final int QUEUE_SIZE = 128;
@@ -43,16 +45,12 @@ public class DrainBenchmark {
   private static final Integer ELEMENT = 0;
 
   @Benchmark
-  @Measurement(iterations = 3)
-  @Warmup(iterations = 3)
   @Threads(PRODUCERS)
   public void ablWithArrayList(ABLWithArrayList state) throws Exception {
     state.queue.put(ELEMENT);
   }
 
   @Benchmark
-  @Measurement(iterations = 3)
-  @Warmup(iterations = 3)
   @Threads(PRODUCERS)
   public void drainQueueWithArray(DrainQueueWithArray state) throws Exception {
     state.queue.put(ELEMENT);

@@ -28,9 +28,8 @@ import org.dauch.piola.api.response.Response;
 import org.dauch.piola.buffer.BufferManager;
 import org.dauch.piola.util.*;
 
+import java.lang.ref.Cleaner;
 import java.math.BigInteger;
-import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
 import java.util.BitSet;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicReferenceArray;
@@ -38,11 +37,12 @@ import java.util.function.Consumer;
 import java.util.function.IntFunction;
 
 import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.INFO;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.dauch.piola.api.Constants.MAX_STREAMS;
 
 public abstract class AbstractServer<RQ extends ServerRequest, RS extends ServerResponse> extends CompositeCloseable implements Server {
+
+  protected static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("server-cleaner").factory());
 
   protected final long exitCmd = ThreadLocalRandom.current().nextLong();
 
@@ -60,6 +60,7 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
   protected final BigIntCounter unknownRequests = new BigIntCounter();
   protected final BigIntCounter brokenRequests = new BigIntCounter();
   protected final BigIntCounter incompleteRequests = new BigIntCounter();
+  protected final BigIntCounter incompleteResponses = new BigIntCounter();
   protected final BigIntCounter sentMessages = new BigIntCounter();
   protected final BigIntCounter receivedSize = new BigIntCounter();
   protected final BigIntCounter sentSize = new BigIntCounter();
@@ -126,6 +127,11 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
   }
 
   @Override
+  public BigInteger getIncompleteResponses() {
+    return incompleteResponses.get();
+  }
+
+  @Override
   public BigInteger getSentMessages() {
     return sentMessages.get();
   }
@@ -152,27 +158,8 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
 
   protected abstract void requestLoop();
   protected abstract void responseLoop();
-  protected abstract void doInMainLoop(ByteBuffer buffer) throws Exception;
   protected abstract void doSendShutdownSequence() throws Exception;
-
-  private void mainLoop() {
-    while (true) {
-      var buf = buffers.get();
-      try {
-        doInMainLoop(buf);
-      } catch (ClosedChannelException | InterruptedException _) {
-        buffers.release(buf);
-        logger.log(INFO, "Closed");
-        break;
-      } catch (Throwable e) {
-        buffers.release(buf);
-        logger.log(ERROR, "Unexpected exception", e);
-        unexpectedErrors.increment();
-      }
-    }
-    logger.log(INFO, "Main loop finished");
-  }
-
+  protected abstract void mainLoop();
 
   protected void startThreads() {
     $("responses-thread", responseThread::join);

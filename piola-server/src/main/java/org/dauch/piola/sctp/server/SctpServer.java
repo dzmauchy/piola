@@ -32,10 +32,10 @@ import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.sctp.SctpUtils;
 import org.dauch.piola.server.AbstractServer;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.io.*;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 import java.util.function.Consumer;
 import java.util.stream.Stream;
 
@@ -97,12 +97,30 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
   }
 
   @Override
-  protected void doInMainLoop(ByteBuffer buf) throws Exception {
+  protected void mainLoop() {
+    while (true) {
+      var buf = buffers.get();
+      try {
+        doInMainLoop(buf);
+      } catch (ClosedChannelException | InterruptedException _) {
+        buffers.release(buf);
+        logger.log(INFO, "Closed");
+        break;
+      } catch (Throwable e) {
+        buffers.release(buf);
+        logger.log(ERROR, "Unexpected exception", e);
+        unexpectedErrors.increment();
+      }
+    }
+    logger.log(INFO, "Main loop finished");
+  }
+
+  private void doInMainLoop(ByteBuffer buf) throws Exception {
     var msg = channel.receive(buf, null, null);
     receivedSize.add(msg.bytes());
     receivedRequests.increment();
     if (SctpUtils.isExitSequence(channel, msg, buf, exitCmd)) {
-      logger.log(INFO, () -> "Termination sequence received " + msg);
+      logger.log(INFO, () -> "Exit sequence received " + msg);
       throw new InterruptedException();
     } else if (msg.isComplete()) {
       try {

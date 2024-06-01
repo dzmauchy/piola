@@ -1,4 +1,4 @@
-package org.dauch.piola.udp.server;
+package org.dauch.piola.udp.fragment;
 
 /*-
  * #%L
@@ -22,29 +22,23 @@ package org.dauch.piola.udp.server;
  * #L%
  */
 
-import org.dauch.piola.api.SerializationContext;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.server.ServerRequest;
-import org.dauch.piola.udp.fragment.MsgKey;
+import org.dauch.piola.udp.UdpUtils;
+import org.dauch.piola.util.FastBitSet;
 
-import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
-public record UdpRq(
-  MsgKey key,
-  InetSocketAddress address,
-  Request<?> request,
-  ByteBuffer buffer,
-  SerializationContext context
-) implements ServerRequest {
+public final class Ack {
 
-  @Override
-  public long id() {
-    return key.id();
-  }
+  public final Fragment fragment;
+  public final FastBitSet state;
+  public final FastBitSet remoteState;
+  public final boolean completed;
 
-  @Override
-  public int stream() {
-    return key.stream();
+  public Ack(ByteBuffer buffer) {
+    UdpUtils.validateCrc(buffer);
+    fragment = new Fragment(buffer);
+    state = new FastBitSet(buffer);
+    remoteState = new FastBitSet(buffer);
+    completed = buffer.get() != 0;
   }
 }

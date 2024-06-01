@@ -67,7 +67,7 @@ public final class ServerHandler implements AutoCloseable {
           throw new IllegalStateException("Unable to read attributes");
         if (request.attrs() instanceof SimpleAttrs a)
           attrs.update(a);
-        return new TopicResponse(request.topic(), attrs);
+        return new TopicInfoResponse(request.topic(), attrs);
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to create topic in " + d, e);
         return new ErrorResponse("Topic creation error", ExceptionData.from(e));
@@ -86,7 +86,7 @@ public final class ServerHandler implements AutoCloseable {
           if (!d.delete()) {
             throw new IllegalStateException("Unable to delete the topic directory");
           }
-          return new TopicResponse(request.topic(), attrs);
+          return new TopicInfoResponse(request.topic(), attrs);
         } else {
           return new TopicNotFoundResponse();
         }
@@ -107,7 +107,7 @@ public final class ServerHandler implements AutoCloseable {
         var fileAttrs = d.readFileAttrs();
         if (fileAttrs == null)
           throw new IllegalStateException("Unable to read attributes");
-        return new TopicResponse(request.topic(), fileAttrs);
+        return new TopicInfoResponse(request.topic(), fileAttrs);
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to get the topic " + request.topic(), e);
         return new ErrorResponse("Topic getting error", ExceptionData.from(e));
@@ -137,12 +137,12 @@ public final class ServerHandler implements AutoCloseable {
         var attrsFile = dir.resolve("attributes.data");
         try (var ch = open(attrsFile, EnumSet.of(READ))) {
           var buffer = ch.map(READ_ONLY, 0L, ch.size());
-          consumer.accept(new TopicResponse(topic, new FileAttrs(buffer)));
+          consumer.accept(new TopicInfoResponse(topic, new FileAttrs(buffer)));
         } catch (NoSuchFileException _) {
         }
       }
     }
-    consumer.accept(new TopicResponse("", null));
+    consumer.accept(new TopicInfoResponse("", null));
   }
 
   public void addData(SendDataRequest request, ServerRequest sr, Consumer<? super Response> consumer) {

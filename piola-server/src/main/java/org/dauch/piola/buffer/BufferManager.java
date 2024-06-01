@@ -22,14 +22,13 @@ package org.dauch.piola.buffer;
  * #L%
  */
 
-import org.dauch.piola.util.ByteBufferIntMap;
+import org.dauch.piola.util.FastBitSet;
 
 import java.io.*;
 import java.lang.foreign.MemorySegment;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
-import java.util.BitSet;
 import java.util.EnumSet;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -41,20 +40,17 @@ import static java.nio.file.StandardOpenOption.*;
 
 public final class BufferManager implements Closeable {
 
-  private final ByteBufferIntMap bufferMap;
   private final ByteBuffer[] buffers;
   private final MemorySegment[] segments;
-  private final int count;
   private final float freeSpaceRatio;
   private final FileChannel channel;
-  private final BitSet state;
+  private final FastBitSet state;
 
   public BufferManager(String prefix, Path directory, int count, int maxBufferSize, float freeSpaceRatio) {
     this.buffers = new ByteBuffer[count];
     this.segments = new MemorySegment[count];
-    this.count = count;
     this.freeSpaceRatio = freeSpaceRatio;
-    this.state = new BitSet(count);
+    this.state = new FastBitSet(count);
     var rand = ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE);
     var name = prefix + "-" + nanoTime() + "-" + Integer.toString(rand, MAX_RADIX) + ".data";
     var file = directory.resolve(name);
@@ -64,7 +60,6 @@ public final class BufferManager implements Closeable {
         var buffer = buffers[i] = channel.map(READ_WRITE, (long) i * (long) maxBufferSize, maxBufferSize);
         segments[i] = MemorySegment.ofBuffer(buffer);
       }
-      bufferMap = new ByteBufferIntMap(buffers);
     } catch (Throwable e) {
       if (BufferManager.this.channel != null) {
         try {
@@ -89,10 +84,8 @@ public final class BufferManager implements Closeable {
     int slot;
     do {
       synchronized (this) {
-        if ((slot = state.nextClearBit(0)) < count) {
-          state.set(slot);
+        if ((slot = state.trySetFirstClearBit(buffers.length)) >= 0)
           break;
-        }
       }
       Thread.onSpinWait();
     } while (true);
@@ -100,12 +93,20 @@ public final class BufferManager implements Closeable {
   }
 
   public synchronized void release(ByteBuffer buffer) {
-    var index = bufferMap.get(buffer);
+    var index = find(buffer);
     state.clear(index);
     if (needsCleanup(buffer)) {
       segments[index].fill((byte) 0);
     }
     buffer.clear();
+  }
+
+  private int find(ByteBuffer buffer) {
+    var bs = buffers;
+    for (int i = 0, l = bs.length; i < l; i++) {
+      if (bs[i] == buffer) return i;
+    }
+    return -1;
   }
 
   public boolean needsCleanup(ByteBuffer buffer) {
@@ -116,7 +117,7 @@ public final class BufferManager implements Closeable {
   @Override
   public void close() throws IOException {
     try (channel) {
-      state.set(0, count);
+      state.clear();
     }
   }
 }
