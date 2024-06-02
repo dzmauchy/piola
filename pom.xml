@@ -15,9 +15,11 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <lombok.version>1.18.32</lombok.version>
     <jmh.version>1.37</jmh.version>
+    <surefire.version>3.2.5</surefire.version>
   </properties>
 
   <inceptionYear>2024</inceptionYear>
+  <url>https://github.com/dzmauchy/piola</url>
 
   <developers>
     <developer>
@@ -123,7 +125,7 @@
         </plugin>
         <plugin>
           <artifactId>maven-failsafe-plugin</artifactId>
-          <version>3.2.5</version>
+          <version>${surefire.version}</version>
           <configuration>
             <forkCount>1</forkCount>
             <reuseForks>false</reuseForks>
@@ -142,11 +144,11 @@
         </plugin>
         <plugin>
           <artifactId>maven-site-plugin</artifactId>
-          <version>4.0.0-M13</version>
+          <version>4.0.0-M15</version>
         </plugin>
         <plugin>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.2.5</version>
+          <version>${surefire.version}</version>
           <configuration>
             <forkCount>1</forkCount>
             <reuseForks>true</reuseForks>
@@ -166,7 +168,7 @@
         </plugin>
         <plugin>
           <artifactId>maven-javadoc-plugin</artifactId>
-          <version>3.6.3</version>
+          <version>3.7.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-pmd-plugin</artifactId>
@@ -182,7 +184,11 @@
         </plugin>
         <plugin>
           <artifactId>maven-enforcer-plugin</artifactId>
-          <version>3.4.1</version>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-toolchains-plugin</artifactId>
+          <version>3.2.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-release-plugin</artifactId>
@@ -208,6 +214,11 @@
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>exec-maven-plugin</artifactId>
           <version>3.2.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.jacoco</groupId>
+          <artifactId>jacoco-maven-plugin</artifactId>
+          <version>0.8.12</version>
         </plugin>
       </plugins>
     </pluginManagement>
@@ -244,4 +255,22 @@
       </plugin>
     </plugins>
   </build>
+
+  <reporting>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-project-info-reports-plugin</artifactId>
+        <version>3.5.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-report-plugin</artifactId>
+        <version>${surefire.version}</version>
+        <configuration>
+          <linkXRef>false</linkXRef>
+        </configuration>
+      </plugin>
+    </plugins>
+  </reporting>
 </project>
