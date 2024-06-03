@@ -39,7 +39,7 @@ public final class RequestFactory {
       case 2 -> TopicDeleteRequestSerde.read(input, context);
       case 3 -> TopicGetRequestSerde.read(input, context);
       case 4 -> TopicListRequestSerde.read(input, context);
-      case 5 -> SendDataRequestSerde.read(input, context);
+      case 5 -> DataSendRequestSerde.read(input, context);
       default -> new UnknownRequest(req);
     };
   }
@@ -50,7 +50,7 @@ public final class RequestFactory {
       case TopicDeleteRequest r -> TopicDeleteRequestSerde.write(r, output.putInt(2));
       case TopicGetRequest r -> TopicGetRequestSerde.write(r, output.putInt(3));
       case TopicListRequest r -> TopicListRequestSerde.write(r, output.putInt(4));
-      case SendDataRequest r -> SendDataRequestSerde.write(r, output.putInt(5));
+      case DataSendRequest r -> DataSendRequestSerde.write(r, output.putInt(5));
       case UnknownRequest r -> UnknownRequestSerde.write(r, output.putInt(0));
     }
   }

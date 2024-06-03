@@ -43,7 +43,7 @@ public abstract class CompositeCloseable implements AutoCloseable {
     return closeable;
   }
 
-  protected <E extends Throwable> E initException(E exception) {
+  protected <E extends Throwable> E constructorException(E exception) {
     try {
       close();
     } catch (Throwable e) {

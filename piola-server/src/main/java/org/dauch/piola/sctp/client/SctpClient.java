@@ -22,21 +22,21 @@ package org.dauch.piola.sctp.client;
  * #L%
  */
 
+import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.SctpMultiChannel;
-import org.dauch.piola.api.*;
+import org.dauch.piola.api.RequestFactory;
 import org.dauch.piola.api.request.Request;
-import org.dauch.piola.api.response.ErrorResponse;
-import org.dauch.piola.api.response.UnknownResponse;
 import org.dauch.piola.client.AbstractClient;
-import org.dauch.piola.client.ClientResponse;
 import org.dauch.piola.sctp.SctpUtils;
 
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.ClosedChannelException;
 
 import static com.sun.nio.sctp.MessageInfo.createOutgoing;
+import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
-import static org.dauch.piola.sctp.SctpUtils.streamNumber;
 
 public final class SctpClient extends AbstractClient {
 
@@ -50,24 +50,33 @@ public final class SctpClient extends AbstractClient {
       channel.bind(null, 0);
       startThreads();
     } catch (Throwable e) {
-      throw initException(new IllegalStateException("Unable to create client " + conf.name(), e));
+      throw constructorException(new IllegalStateException("Unable to create client " + conf.name(), e));
     }
   }
 
   @Override
-  protected void sendShutdownSequence() throws Exception {
-    var addr = SctpUtils.sendExitSequence(channel, exitCmd);
-    logger.log(INFO, () -> "Shutdown sequence sent to " + addr);
+  protected void scanResponses() {
+    while (true) {
+      var buf = buffers.get();
+      try {
+        var msg = channel.receive(buf, null, null);
+        if (!running) {
+          throw new InterruptedException("Not running");
+        }
+        readResponse(buf, msg);
+      } catch (ClosedChannelException | InterruptedException e) {
+        break;
+      } catch (Throwable e) {
+        logger.log(ERROR, "Unexpected error", e);
+      } finally {
+        buffers.release(buf);
+      }
+    }
+    logger.log(INFO, "Main loop closed");
   }
 
-  @Override
-  protected void doScanResponses(ByteBuffer buf) throws Exception {
-    var msg = channel.receive(buf, null, null);
+  private void readResponse(ByteBuffer buf, MessageInfo msg) throws Exception {
     try {
-      if (SctpUtils.isExitSequence(channel, msg, buf, exitCmd)) {
-        logger.log(INFO, () -> "Shutdown sequence received: " + msg);
-        throw new InterruptedException();
-      }
       receivedResponses.increment();
       receivedSize.add(msg.bytes());
       if (!msg.isComplete()) {
@@ -79,18 +88,11 @@ public final class SctpClient extends AbstractClient {
       var id = buf.getLong();
       var queue = responses.get(id);
       if (queue == null) {
-        channel.shutdown(msg.association());
+        forgottenResponses.increment();
       } else {
-        var in = new SerializationContext();
-        var rsp = ResponseFactory.read(buf, in);
-        switch (rsp) {
-          case ErrorResponse _ -> errorResponses.increment();
-          case UnknownResponse _ -> unknownResponses.increment();
-          default -> {}
-        }
-        var out = SerializationContext.read(buf);
-        var address = (InetSocketAddress) msg.address();
-        queue.add(new ClientResponse<>(serverId, address, rsp, out, in));
+        var addr = (InetSocketAddress) msg.address();
+        var response = clientResponse(buf, msg.payloadProtocolID(), serverId, msg.streamNumber(), addr);
+        queue.add(response);
       }
     } catch (Throwable e) {
       unexpectedErrors.increment();
@@ -100,10 +102,28 @@ public final class SctpClient extends AbstractClient {
   }
 
   @Override
-  protected void send(ByteBuffer buf, long id, Request<?> rq, InetSocketAddress addr) throws Exception {
+  protected void fill(ByteBuffer buf, long id, Request<?> rq, ByteBuffer payload) {
     RequestFactory.write(rq, buf.putLong(id));
-    var size = channel.send(buf.flip(), createOutgoing(addr, streamNumber(rq)));
+    if (payload != null) {
+      buf.put(payload);
+    }
+  }
+
+  @Override
+  protected int send(ByteBuffer buf, Request<?> rq, int stream, long id, InetSocketAddress address) throws Exception {
+    var size = channel.send(buf, createOutgoing(address, stream));
     sentRequests.increment();
     sentSize.add(size);
+    return 1;
+  }
+
+  @Override
+  protected InetSocketAddress sendShutdownSequence() {
+    try {
+      return SctpUtils.sendExitSequence(channel);
+    } catch (Throwable e) {
+      logger.log(ERROR, "Unable to send shutdown sequence", e);
+      return null;
+    }
   }
 }

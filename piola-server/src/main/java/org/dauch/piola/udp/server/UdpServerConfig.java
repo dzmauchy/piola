@@ -41,19 +41,21 @@ public record UdpServerConfig(
   @Default("60") int linger,
   @Default("1 << 20") int rcvBufSize,
   @Default("1 << 20") int sendBufSize,
-  @Default("2 << 20") int maxMessageSize,
+  @Default("1 << 20") int maxMessageSize,
   @Default("256") int queueSize,
-  @Default("64") int bufferCount,
+  @Default("128") int bufferCount,
   @Default("0.25f") float freeRatio,
   @Default("bufferDirDefault()") Path bufferDir,
   @Default("baseDirDefault()") Path baseDir,
   NetworkInterface multicastNetworkInterface,
   @Default("255") int multicastTtl,
   @Default("true") boolean multicastLoop,
-  @Default("multicastGroupDefault()") InetAddress multicastGroup,
-  @Default("60") int fragmentTimeout,
+  @Default("multicastGroupDefault(protocolFamily)") InetAddress multicastGroup,
+  @Default("60000") int messageAssemblyTimeout,
   @Default("65536") int maxFragmentSize,
-  @Default("bufferCount * 16") int fragmentBufferCount
+  @Default("bufferCount * 16") int fragmentBufferCount,
+  @Default("true") boolean sparse,
+  @Default("5") int ackTimeout
 ) implements ServerClientConfig, ServerConfig {
 
   public static UdpServerConfig fromProperties(String prefix, Properties properties) {
@@ -70,8 +72,8 @@ public record UdpServerConfig(
 
   public static InetSocketAddress addressDefault(StandardProtocolFamily protocolFamily) {
     return switch (protocolFamily) {
-      case INET6 -> new InetSocketAddress(Inet4Address.ofLiteral("::"), 0);
-      case INET -> new InetSocketAddress(Inet6Address.ofLiteral("0.0.0.0"), 0);
+      case INET6 -> new InetSocketAddress(Inet6Address.ofLiteral("::"), 0);
+      case INET -> new InetSocketAddress(Inet4Address.ofLiteral("0.0.0.0"), 0);
       case UNIX -> throw new UnsupportedOperationException("Unsupported protocol family: " + protocolFamily);
     };
   }
@@ -84,7 +86,11 @@ public record UdpServerConfig(
     return Path.of(System.getProperty("user.home"), "piola", "data");
   }
 
-  public static InetAddress multicastGroupDefault() {
-    return InetAddress.ofLiteral("224.0.0.1");
+  public static InetAddress multicastGroupDefault(StandardProtocolFamily protocolFamily) {
+    return switch (protocolFamily) {
+      case INET -> InetAddress.ofLiteral("224.0.0.1");
+      case INET6 -> InetAddress.ofLiteral("ff02::1");
+      default -> throw new UnsupportedOperationException("Unsupported protocol family: " + protocolFamily);
+    };
   }
 }

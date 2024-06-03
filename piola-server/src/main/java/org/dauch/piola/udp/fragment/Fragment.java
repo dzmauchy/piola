@@ -27,26 +27,21 @@ import org.dauch.piola.exception.DataCorruptionException;
 import java.nio.ByteBuffer;
 import java.util.Objects;
 
-public record Fragment(MsgKey key, int size, int parts, int part, int len, int offset, int checksum) {
+public record Fragment(int size, int parts, int part, int len, int offset, int checksum) {
 
   public Fragment(ByteBuffer buf) {
-    this(new MsgKey(buf), buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt());
+    this(buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt(), buf.getInt());
     if (size <= 0)
       throw new DataCorruptionException("size must be > 0", null);
     if (parts <= 0)
       throw new DataCorruptionException("Part count must be greater than zero", null);
     if (part < 0 || part >= parts)
       throw new DataCorruptionException("Part out of range", null);
-    if (len > size / parts)
-      throw new DataCorruptionException("len out of range", null);
-    if (part < parts - 1 && len != size / parts)
-      throw new DataCorruptionException("len out of range", null);
-    if (offset != part * (size / parts))
+    if (offset != part * len)
       throw new DataCorruptionException("offset out of range", null);
   }
 
-  void write(ByteBuffer buf) {
-    key.write(buf);
+  public void write(ByteBuffer buf) {
     buf.putInt(size);
     buf.putInt(parts);
     buf.putInt(part);
@@ -57,14 +52,13 @@ public record Fragment(MsgKey key, int size, int parts, int part, int len, int o
 
   @Override
   public int hashCode() {
-    return Objects.hash(key, size, parts, part, len, offset, checksum);
+    return Objects.hash(size, parts, part, len, offset, checksum);
   }
 
   @Override
   public boolean equals(Object obj) {
     if (obj instanceof Fragment that) {
-      return key.equals(that.key)
-        && size == that.size
+      return size == that.size
         && parts == that.parts
         && part == that.part
         && len == that.len
@@ -77,6 +71,6 @@ public record Fragment(MsgKey key, int size, int parts, int part, int len, int o
 
   @Override
   public String toString() {
-    return "Fragment(%s,%d,%d,%d,%d,%d,%d)".formatted(key, size, parts, part, len, offset, checksum);
+    return "Fragment(%d,%d,%d,%d,%d,%d)".formatted(size, parts, part, len, offset, checksum);
   }
 }

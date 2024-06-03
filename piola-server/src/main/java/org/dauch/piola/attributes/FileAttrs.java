@@ -24,90 +24,117 @@ package org.dauch.piola.attributes;
 
 import org.dauch.piola.exception.NoValueException;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.lang.foreign.*;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
+import java.util.EnumSet;
+
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
+import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
+import static java.nio.file.StandardOpenOption.*;
 
 public final class FileAttrs extends Attrs {
 
-  final ByteBuffer buffer;
-  int size;
+  private static final ValueLayout.OfLong LONG = JAVA_LONG.withOrder(ByteOrder.BIG_ENDIAN);
 
-  public FileAttrs(ByteBuffer buffer) {
-    this.buffer = buffer;
-    this.size = size(buffer);
-  }
+  private final Path path;
+  private final Arena arena;
+  private MemorySegment segment;
 
-  private static int size(ByteBuffer buffer) {
-    for (int i = 0, l = buffer.capacity() >>> 4; i < l; i++) {
-      var k = buffer.getLong(i << 4);
-      if (k == 0L) {
-        return i;
+  public FileAttrs(Path path, Arena arena, boolean readOnly) {
+    this.path = path;
+    this.arena = arena;
+    try {
+      var opts = readOnly ? EnumSet.of(READ) : EnumSet.of(READ, WRITE, CREATE);
+      try (var ch = FileChannel.open(path, opts)) {
+        segment = ch.map(readOnly ? READ_ONLY : READ_WRITE, 0L, ch.size(), arena);
       }
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
     }
-    return buffer.capacity() >>> 4;
   }
 
   @Override
   int size() {
-    return size;
+    return (int) (segment.byteSize() >>> 4);
   }
 
   @Override
   long getKeyByIndex(int index) {
-    return buffer.getLong(index << 4);
+    return segment.getAtIndex(LONG, index * 2L);
   }
 
   @Override
   long getValueByIndex(int index) {
-    return buffer.getLong((index << 4) + 8);
+    return segment.getAtIndex(LONG, index * 2L + 1L);
   }
 
   public void update(SimpleAttrs attrs) {
     var ks = attrs.keys;
     var vs = attrs.values;
-    if (size == 0) {
-      size = ks.length;
-      buffer.position(0).limit(size << 4);
-      for (int i = 0, l = ks.length; i < l; i++) {
-        buffer.putLong(ks[i]).putLong(vs[i]);
+    if (size() == 0) {
+      segment.unload();
+      try (var ch = FileChannel.open(path, EnumSet.of(READ, WRITE, CREATE))) {
+        segment = ch.map(READ_WRITE, 0L, (long) attrs.size() << 4, arena);
+        for (int i = 0, l = attrs.keys.length; i < l; i++) {
+          segment.setAtIndex(LONG, i * 2L, attrs.keys[i]);
+          segment.setAtIndex(LONG, i * 2L + 1L, attrs.values[i]);
+        }
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
       }
-      return;
-    }
-    for (int i = 0, l = ks.length; i < l; i++) {
-      put(ks[i], vs[i]);
+    } else {
+      int toAdd = 0;
+      var size = size();
+      for (var k : attrs.keys) {
+        if (binarySearch(k, size) < 0) toAdd++;
+      }
+      try (var ch = FileChannel.open(path, EnumSet.of(READ, WRITE, CREATE))) {
+        segment = ch.map(READ_WRITE, 0L, ch.size() + ((long) toAdd << 4), arena);
+      } catch (IOException e) {
+        throw new UncheckedIOException(e);
+      }
+      for (int i = 0, l = ks.length; i < l; i++) {
+        put(size++, ks[i], vs[i]);
+      }
     }
   }
 
-  public void put(long key, long value) {
-    var i = binarySearch(key);
+  private void put(int size, long key, long value) {
+    var i = binarySearch(key, size);
     if (i >= 0) {
-      buffer.putLong((i << 4) + 8, value);
+      segment.setAtIndex(LONG, i * 2L + 1L, value);
     } else {
       i = -(i + 1);
       for (int j = size; j > i; j--) {
-        buffer.putLong(j << 4, buffer.getLong((j - 1) << 4));
-        buffer.putLong((j << 4) + 8, buffer.getLong(((j - 1) << 4) + 8));
+        segment.setAtIndex(LONG, j * 2L, segment.getAtIndex(LONG, (j - 1) * 2L));
+        segment.setAtIndex(LONG, j * 2L + 1, segment.getAtIndex(LONG, (j - 1) * 2L + 1L));
       }
-      buffer.putLong(i << 4, key);
-      buffer.putLong((i << 4) + 8, value);
-      size++;
+      segment.setAtIndex(LONG, i * 2L, key);
+      segment.setAtIndex(LONG, i * 2L + 1L, value);
     }
   }
 
   @Override
   long readRaw(long key) throws NoValueException {
-    int i = binarySearch(key);
+    int i = binarySearch(key, size());
     if (i >= 0) {
-      return buffer.getLong((i << 4) + 8);
+      return segment.getAtIndex(LONG, i * 2L);
     } else {
       throw NoValueException.NO_VALUE_EXCEPTION;
     }
   }
 
-  private int binarySearch(long key) {
+  private int binarySearch(long key, int size) {
     int l = 0, h = size - 1;
     while (l <= h) {
       int m = (l + h) >>> 1;
-      long v = buffer.getLong(m << 4);
+      long v = segment.getAtIndex(LONG, m * 2L);
       if (key < v) l = m + 1;
       else if (key > v) h = m - 1;
       else return m;
@@ -117,6 +144,17 @@ public final class FileAttrs extends Attrs {
 
   @Override
   public void write(ByteBuffer buffer) {
-    buffer.putInt(size).put(this.buffer.position(0).limit(size << 4));
+    buffer.putInt(size()).put(segment.asByteBuffer());
+  }
+
+  public SimpleAttrs toSimpleAttrs() {
+    var l = size();
+    var ks = new long[l];
+    var vs = new long[l];
+    for (int i = 0; i < l; i++) {
+      ks[i] = segment.getAtIndex(LONG, i * 2L);
+      vs[i] = segment.getAtIndex(LONG, i * 2L + 1L);
+    }
+    return new SimpleAttrs(ks, vs);
   }
 }

@@ -22,23 +22,24 @@ package org.dauch.piola.udp.fragment;
  * #L%
  */
 
-import org.dauch.piola.udp.UdpUtils;
-import org.dauch.piola.util.FastBitSet;
+import java.util.concurrent.ConcurrentSkipListMap;
 
-import java.nio.ByteBuffer;
+public final class FragmentCacheOut {
 
-public final class Ack {
+  private final ConcurrentSkipListMap<MsgKey, MsgValueOut> cache = new ConcurrentSkipListMap<>();
 
-  public final Fragment fragment;
-  public final FastBitSet state;
-  public final FastBitSet remoteState;
-  public final boolean completed;
+  public MsgValueOut computeIfAbsent(MsgKey key, int parts, int checksum, int len, int size) {
+    return cache.computeIfAbsent(key, _ -> new MsgValueOut(parts, checksum, len, size));
+  }
 
-  public Ack(ByteBuffer buffer) {
-    UdpUtils.validateCrc(buffer);
-    fragment = new Fragment(buffer);
-    state = new FastBitSet(buffer);
-    remoteState = new FastBitSet(buffer);
-    completed = buffer.get() != 0;
+  public void apply(MsgKey key, Fragment fragment) {
+    var value = cache.get(key);
+    if (value != null) {
+      value.apply(fragment);
+    }
+  }
+
+  public void remove(MsgKey key) {
+    cache.remove(key);
   }
 }

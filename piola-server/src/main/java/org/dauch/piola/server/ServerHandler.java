@@ -29,35 +29,29 @@ import org.dauch.piola.attributes.SimpleAttrs;
 import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.validation.TopicValidation;
 
-import java.nio.file.*;
-import java.util.EnumSet;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.lang.foreign.Arena;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import static java.lang.System.Logger.Level.ERROR;
-import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
-import static java.nio.channels.FileChannel.open;
-import static java.nio.file.StandardOpenOption.READ;
+import static java.lang.System.Logger.Level.INFO;
 
 public final class ServerHandler implements AutoCloseable {
 
   private final System.Logger logger;
   private final Path baseDir;
-  private final ReentrantReadWriteLock[] locks = new ReentrantReadWriteLock[128];
-  private final TopicData[] topics = new TopicData[locks.length];
+  private final ConcurrentSkipListMap<String, TopicData> topics = new ConcurrentSkipListMap<>();
 
   public ServerHandler(System.Logger logger, Path baseDir) throws Exception {
     this.logger = logger;
     this.baseDir = baseDir;
     Files.createDirectories(baseDir);
-    for (int i = 0; i < locks.length; i++) {
-      locks[i] = new ReentrantReadWriteLock();
-    }
   }
 
   public void createTopic(TopicCreateRequest request, Consumer<? super Response> consumer) {
-    consumer.accept(withWriteLock(request.topic(), d -> {
+    withWriteLock(request.topic(), d -> {
       try {
         if (!d.exists()) {
           d.create();
@@ -67,52 +61,62 @@ public final class ServerHandler implements AutoCloseable {
           throw new IllegalStateException("Unable to read attributes");
         if (request.attrs() instanceof SimpleAttrs a)
           attrs.update(a);
-        return new TopicInfoResponse(request.topic(), attrs);
+        consumer.accept(new TopicInfoResponse(request.topic(), attrs));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to create topic in " + d, e);
-        return new ErrorResponse("Topic creation error", ExceptionData.from(e));
+        consumer.accept(new ErrorResponse("Topic creation error", ExceptionData.from(e)));
       }
-    }));
+    });
   }
 
   public void deleteTopic(TopicDeleteRequest request, Consumer<? super Response> consumer) {
-    consumer.accept(withWriteLock(request.topic(), d -> {
+    withWriteLock(request.topic(), d -> {
       try {
+        if (d == null) {
+          consumer.accept(new TopicNotFoundResponse());
+          return;
+        }
         if (d.exists()) {
           var fileAttrs = d.readFileAttrs();
           if (fileAttrs == null)
             throw new IllegalStateException("Unable to read attributes");
-          var attrs = new SimpleAttrs(fileAttrs);
+          var attrs = fileAttrs.toSimpleAttrs();
           if (!d.delete()) {
             throw new IllegalStateException("Unable to delete the topic directory");
           }
-          return new TopicInfoResponse(request.topic(), attrs);
+          consumer.accept(new TopicInfoResponse(request.topic(), attrs));
         } else {
-          return new TopicNotFoundResponse();
+          consumer.accept(new TopicNotFoundResponse());
+        }
+        var old = topics.remove(request.topic());
+        if (old != null) {
+          try (old) {
+            logger.log(INFO, () -> "Closing " + old);
+          }
         }
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to delete the topic " + request.topic(), e);
-        return new ErrorResponse("Topic deletion error", ExceptionData.from(e));
-      } finally {
-        removeTopicData(request.topic());
+        consumer.accept(new ErrorResponse("Topic deletion error", ExceptionData.from(e)));
       }
-    }));
+    });
   }
 
   public void getTopic(TopicGetRequest request, Consumer<? super Response> consumer) {
-    consumer.accept(withReadLock(request.topic(), d -> {
+    withReadLock(request.topic(), d -> {
       try {
-        if (d == null)
-          return new TopicNotFoundResponse();
+        if (d == null) {
+          consumer.accept(new TopicNotFoundResponse());
+          return;
+        }
         var fileAttrs = d.readFileAttrs();
         if (fileAttrs == null)
           throw new IllegalStateException("Unable to read attributes");
-        return new TopicInfoResponse(request.topic(), fileAttrs);
+        consumer.accept(new TopicInfoResponse(request.topic(), fileAttrs));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to get the topic " + request.topic(), e);
-        return new ErrorResponse("Topic getting error", ExceptionData.from(e));
+        consumer.accept(new ErrorResponse("Topic getting error", ExceptionData.from(e)));
       }
-    }));
+    });
   }
 
   public void listTopics(TopicListRequest request, Consumer<? super Response> consumer) throws Exception {
@@ -135,73 +139,52 @@ public final class ServerHandler implements AutoCloseable {
           }
         }
         var attrsFile = dir.resolve("attributes.data");
-        try (var ch = open(attrsFile, EnumSet.of(READ))) {
-          var buffer = ch.map(READ_ONLY, 0L, ch.size());
-          consumer.accept(new TopicInfoResponse(topic, new FileAttrs(buffer)));
-        } catch (NoSuchFileException _) {
+        try (var arena = Arena.ofConfined()) {
+          var attrs = new FileAttrs(attrsFile, arena, true).toSimpleAttrs();
+          consumer.accept(new TopicInfoResponse(topic, attrs));
         }
       }
     }
     consumer.accept(new TopicInfoResponse("", null));
   }
 
-  public void addData(SendDataRequest request, ServerRequest sr, Consumer<? super Response> consumer) {
+  public void sendData(DataSendRequest request, ServerRequest sr, Consumer<? super Response> consumer) {
+    var buf = sr.buffer();
+    var stream = sr.stream();
   }
 
-  private <T> T withWriteLock(String topic, Function<TopicData, T> f) {
-    var index = Integer.remainderUnsigned(topic.hashCode(), locks.length);
+  private void withWriteLock(String topic, Consumer<TopicData> task) {
     TopicValidation.validateName(topic);
     var dir = baseDir.resolve(topic);
-    var lock = locks[index];
-    lock.writeLock().lock();
-    try {
-      for (var d = topics[index]; d != null; d = d.next) {
-        if (d.topic.equals(topic)) {
-          return f.apply(d);
-        }
-        if (d.next == null) {
-          return f.apply(d.next = new TopicData(dir, topic));
-        }
-      }
-      return f.apply(topics[index] = new TopicData(dir, topic));
-    } finally {
-      lock.writeLock().unlock();
-    }
+    var data = topics.computeIfAbsent(topic, _ -> new TopicData(dir));
+    data.withWriteLock(() -> task.accept(data));
   }
 
-  private <T> T withReadLock(String topic, Function<TopicData, T> f) {
-    var index = Integer.remainderUnsigned(topic.hashCode(), locks.length);
+  private void withReadLock(String topic, Consumer<TopicData> task) {
     TopicValidation.validateName(topic);
-    var lock = locks[index];
-    lock.readLock().lock();
-    try {
-      for (var d = topics[index]; d != null; d = d.next) {
-        if (d.topic.equals(topic)) {
-          return f.apply(d);
-        }
-      }
-      return f.apply(null);
-    } finally {
-      lock.readLock().unlock();
-    }
-  }
-
-  private void removeTopicData(String topic) {
-    var index = Integer.remainderUnsigned(topic.hashCode(), locks.length);
-    var d = topics[index];
-    if (d.topic.equals(topic)) {
-      topics[index] = d.next;
-      return;
-    }
-    for (; ; d = d.next) {
-      if (d.next.topic.equals(topic)) {
-        d.next = d.next.next;
-        return;
-      }
+    var data = topics.get(topic);
+    if (data == null) {
+      task.accept(null);
+    } else {
+      data.withReadLock(() -> task.accept(data));
     }
   }
 
   @Override
   public void close() throws Exception {
+    var closeException = new IllegalStateException("Close exception");
+    topics.entrySet().removeIf(e -> {
+      var topic = e.getKey();
+      var data = e.getValue();
+      try (data) {
+        logger.log(INFO, () -> "Closing topic data " + topic);
+      } catch (Throwable x) {
+        closeException.addSuppressed(x);
+      }
+      return true;
+    });
+    if (closeException.getSuppressed().length > 0) {
+      throw closeException;
+    }
   }
 }

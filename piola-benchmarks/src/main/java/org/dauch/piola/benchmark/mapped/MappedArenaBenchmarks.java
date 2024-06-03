@@ -29,8 +29,10 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.lang.invoke.MethodHandles;
+import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.EnumSet;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
@@ -46,35 +48,38 @@ import static java.util.UUID.randomUUID;
 @Fork(value = 1, jvmArgs = "-Xmx4g")
 @BenchmarkMode(Mode.AverageTime)
 @OutputTimeUnit(TimeUnit.MILLISECONDS)
+@Measurement(iterations = 3)
+@Warmup(iterations = 3)
 public class MappedArenaBenchmarks {
 
-  private static final int OPS = 10;
+  private static final int SIZE = 10 << 20;
+  private static final EnumSet<StandardOpenOption> OPTS = EnumSet.of(CREATE_NEW, READ, WRITE, DELETE_ON_CLOSE);
 
   @Benchmark
-  @Measurement(iterations = 3, batchSize = OPS)
-  @Warmup(iterations = 3, batchSize = OPS)
-  @OperationsPerInvocation(OPS)
-  public void fill(FileState state) {
+  public void fillSegment(FileSegmentState state) {
     state.segment.fill((byte) 0);
   }
 
-  @State(Scope.Benchmark)
-  public static class FileState {
+  @Benchmark
+  public void fillBuffer(FileBufferState state) {
+    var buffer = state.buffer;
+    for (int i = 0; i < SIZE; i++) {
+      buffer.put(0, (byte) 0);
+    }
+  }
 
-    private static final int SIZE = 10 << 20;
+  @State(Scope.Benchmark)
+  public static class FileSegmentState {
 
     private final FileChannel channel;
-    private final FileChannel randomChannel;
     private final MemorySegment segment;
     private final MemorySegment randomSegment;
 
-    public FileState() {
-      var opts = EnumSet.of(CREATE_NEW, READ, WRITE, SPARSE, DELETE_ON_CLOSE);
+    public FileSegmentState() {
       try {
-        channel = open(Path.of(getProperty("java.io.tmpdir"), randomUUID() + "-" + nanoTime() + ".data"), opts);
-        randomChannel = open(Path.of(getProperty("java.io.tmpdir"), randomUUID() + "-" + nanoTime() + ".data"), opts);
+        channel = open(Path.of(getProperty("java.io.tmpdir"), randomUUID() + "-" + nanoTime() + ".data"), OPTS);
         segment = channel.map(READ_WRITE, 0L, SIZE, Arena.ofAuto());
-        randomSegment = randomChannel.map(READ_WRITE, 0L, SIZE, Arena.ofAuto());
+        randomSegment = MemorySegment.ofBuffer(ByteBuffer.allocateDirect(SIZE));
         var random = new Random(0L);
         for (int i = 0; i < SIZE; i += 4) {
           randomSegment.set(JAVA_INT, i, random.nextInt());
@@ -87,6 +92,38 @@ public class MappedArenaBenchmarks {
     @Setup(Level.Iteration)
     public void beforeEachIteration() {
       segment.copyFrom(randomSegment);
+    }
+
+    @TearDown(Level.Iteration)
+    public void close() throws Exception {
+      channel.close();
+    }
+  }
+
+  @State(Scope.Benchmark)
+  public static class FileBufferState {
+
+    private final FileChannel channel;
+    private final ByteBuffer buffer;
+    private final ByteBuffer randomBuffer;
+
+    public FileBufferState() {
+      try {
+        channel = open(Path.of(getProperty("java.io.tmpdir"), randomUUID() + "-" + nanoTime() + ".data"), OPTS);
+        buffer = channel.map(READ_WRITE, 0L, SIZE);
+        randomBuffer = ByteBuffer.allocateDirect(SIZE);
+        var random = new Random(0L);
+        for (int i = 0; i < SIZE; i += 4) {
+          randomBuffer.putInt(i, random.nextInt());
+        }
+      } catch (Exception e) {
+        throw new IllegalStateException(e);
+      }
+    }
+
+    @Setup(Level.Iteration)
+    public void beforeEachIteration() {
+      buffer.put(0, randomBuffer, 0, SIZE);
     }
 
     @TearDown(Level.Iteration)

@@ -91,4 +91,23 @@ final class FastBitSetTest {
     // then
     assertEquals(bs, newBs);
   }
+
+  @Test
+  void clearAndSet() {
+    // given
+    var bs = new FastBitSet(8);
+    bs.set(4);
+    bs.set(3);
+    bs.set(5);
+    bs.set(2);
+    // when
+    bs.clear(3);
+    bs.clear(5);
+    // then
+    assertTrue(bs.get(4));
+    assertTrue(bs.get(2));
+    assertFalse(bs.get(3));
+    assertFalse(bs.get(5));
+    assertEquals("{2,4}", bs.toString());
+  }
 }

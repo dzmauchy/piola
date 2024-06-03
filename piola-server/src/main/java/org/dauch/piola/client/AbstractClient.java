@@ -22,36 +22,35 @@ package org.dauch.piola.client;
  * #L%
  */
 
+import org.dauch.piola.api.ResponseFactory;
+import org.dauch.piola.api.SerializationContext;
 import org.dauch.piola.api.request.Request;
-import org.dauch.piola.api.response.Response;
+import org.dauch.piola.api.response.*;
 import org.dauch.piola.buffer.BufferManager;
-import org.dauch.piola.util.BigIntCounter;
-import org.dauch.piola.util.CompositeCloseable;
+import org.dauch.piola.util.*;
 
 import java.lang.ref.Cleaner;
 import java.math.BigInteger;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.ClosedChannelException;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.LinkedTransferQueue;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.function.Consumer;
 
 import static java.lang.Character.MAX_RADIX;
-import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.Thread.startVirtualThread;
+import static java.lang.System.Logger.Level.WARNING;
 import static java.nio.charset.StandardCharsets.UTF_8;
 
 public abstract class AbstractClient extends CompositeCloseable implements Client {
 
   protected static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("client-cleaner").factory());
 
-  protected final long exitCmd = ThreadLocalRandom.current().nextLong();
+  protected final String name;
   protected final AtomicLong ids = new AtomicLong();
   protected final ConcurrentSkipListMap<Long, LinkedTransferQueue<ClientResponse<?>>> responses = new ConcurrentSkipListMap<>();
   protected final BufferManager buffers;
   protected final BufferManager writeBuffers;
-  protected final Thread responseScannerThread;
+  protected final Thread mainLoopThread;
 
   protected final BigIntCounter brokenResponses = new BigIntCounter();
   protected final BigIntCounter incompleteResponses = new BigIntCounter();
@@ -62,75 +61,66 @@ public abstract class AbstractClient extends CompositeCloseable implements Clien
   protected final BigIntCounter unexpectedErrors = new BigIntCounter();
   protected final BigIntCounter unknownResponses = new BigIntCounter();
   protected final BigIntCounter errorResponses = new BigIntCounter();
+  protected final BigIntCounter forgottenResponses = new BigIntCounter();
+
+  protected volatile boolean running = true;
 
   protected AbstractClient(ClientConfig config) {
     super("client-" + config.name());
     try {
+      name = config.name();
       var prefix = new BigInteger(1, config.name().getBytes(UTF_8)).toString(MAX_RADIX);
       buffers = $("read-buffer", new BufferManager(prefix + "-read", config));
       writeBuffers = $("write-buffer", new BufferManager(prefix + "-write", config));
-      responseScannerThread = Thread.ofVirtual().name("response-scanner-" + config.name()).unstarted(this::scanResponses);
+      mainLoopThread = Thread.ofVirtual().name("responses-" + config.name()).unstarted(this::scanResponses);
     } catch (Throwable e) {
-      throw initException(new IllegalStateException("Unable to start " + logger.getName()));
+      throw constructorException(new IllegalStateException("Unable to start " + logger.getName()));
     }
   }
 
-  protected abstract void doScanResponses(ByteBuffer buffer) throws Exception;
-  protected abstract void sendShutdownSequence() throws Exception;
-  protected abstract void send(ByteBuffer buf, long id, Request<?> rq, InetSocketAddress address) throws Exception;
+  protected abstract void scanResponses();
+  protected abstract void fill(ByteBuffer buf, long id, Request<?> rq, ByteBuffer payload);
+  protected abstract int send(ByteBuffer buf, Request<?> rq, int stream, long id, InetSocketAddress address) throws Exception;
+  protected abstract InetSocketAddress sendShutdownSequence();
+
+  protected void closeMainLoop() {
+    running = false;
+    Threads.close(mainLoopThread, this::sendShutdownSequence, logger);
+  }
 
   protected void startThreads() {
-    $("mainLoopThread", responseScannerThread::join);
-    $("mainLoop", this::sendShutdownSequence);
-    responseScannerThread.start();
+    $("mainLoop", this::closeMainLoop);
+    mainLoopThread.start();
   }
 
-  private void scanResponses() {
-    while (true) {
-      var buf = buffers.get();
-      try {
-        doScanResponses(buf);
-      } catch (ClosedChannelException | InterruptedException e) {
-        break;
-      } catch (Throwable e) {
-        logger.log(ERROR, "Unexpected error", e);
-      } finally {
-        buffers.release(buf);
-      }
-    }
-  }
-
-  public final <RQ extends Request<RS>, RS extends Response> SimpleResponses<RS> send(RQ request, InetSocketAddress... addresses) {
-    if (addresses.length == 0) {
-      throw new IllegalArgumentException("No addresses to send");
-    }
+  private <RS extends Response> SimpleResponses<RS> responses() {
     var id = ids.getAndIncrement();
-    var fetcher = new SimpleResponses<RS>(id, responses.computeIfAbsent(id, _ -> new LinkedTransferQueue<>()));
     var responses = this.responses;
-    CLEANER.register(fetcher, () -> responses.remove(id));
+    var closer = (Runnable) () -> responses.remove(id);
+    var fetcher = new SimpleResponses<RS>(id, responses.computeIfAbsent(id, _ -> new LinkedTransferQueue<>()), closer);
+    CLEANER.register(fetcher, closer);
+    return fetcher;
+  }
+
+  @Override
+  public final <RQ extends Request<RS>, RS extends Response> Responses<RS> send(RQ request, ByteBuffer payload, int stream, InetSocketAddress... addresses) {
+    var fetcher = this.<RS>responses();
     var buf = writeBuffers.get();
     try {
-      var sendTask = (Consumer<InetSocketAddress>) addr -> {
+      fill(buf, fetcher.id, request, payload);
+      for (var addr : addresses) {
+        var b = buf.slice(0, buf.position());
         try {
-          send(buf, id, request, addr);
+          send(b, request, stream, fetcher.id, addr);
         } catch (Throwable e) {
-          synchronized (fetcher.errors) {
-            fetcher.errors.put(addr, e);
-          }
+          logger.log(WARNING, "Error", e);
+          fetcher.putError(addr, e);
         }
-      };
-      if (addresses.length == 1) {
-        sendTask.accept(addresses[0]);
-      } else {
-        var threads = new Thread[addresses.length];
-        for (var i = 0; i < addresses.length; i++) {
-          var addr = addresses[i];
-          threads[i] = startVirtualThread(() -> sendTask.accept(addr));
-        }
-        for (var thread : threads) thread.join();
       }
       return fetcher;
-    } catch (Throwable e) {
+    } catch (RuntimeException e) {
+      throw e;
+    } catch (Exception e) {
       throw new IllegalStateException(e);
     } finally {
       writeBuffers.release(buf);
@@ -180,5 +170,35 @@ public abstract class AbstractClient extends CompositeCloseable implements Clien
   @Override
   public BigInteger getErrorResponses() {
     return errorResponses.get();
+  }
+
+  @Override
+  public BigInteger getForgottenResponses() {
+    return forgottenResponses.get();
+  }
+
+  protected ClientResponse<?> clientResponse(ByteBuffer buffer, int protocolId, int serverId, int stream, InetSocketAddress addr) {
+    var in = new SerializationContext();
+    var response = ResponseFactory.read(buffer, in);
+    switch (response) {
+      case ErrorResponse _ -> errorResponses.increment();
+      case UnknownResponse _ -> unknownResponses.increment();
+      default -> {}
+    }
+    var out = SerializationContext.read(buffer);
+    var remaining = buffer.remaining();
+    final byte[] payload;
+    if (remaining > 0) {
+      payload = new byte[remaining];
+      buffer.get(payload);
+    } else {
+      payload = null;
+    }
+    return new ClientResponse<>(protocolId, serverId, stream, addr, response, out, in, payload);
+  }
+
+  @Override
+  public String toString() {
+    return getClass().getSimpleName() + "(" + name + ")";
   }
 }

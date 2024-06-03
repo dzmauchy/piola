@@ -25,33 +25,24 @@ package org.dauch.piola.udp.server;
 import org.dauch.piola.api.SerializationContext;
 import org.dauch.piola.api.response.Response;
 import org.dauch.piola.server.ServerResponse;
+import org.dauch.piola.udp.fragment.MsgKey;
 
 import java.net.InetSocketAddress;
 
-public record UdpRs() implements ServerResponse {
-
-  @Override
-  public InetSocketAddress address() {
-    return null;
-  }
-
-  @Override
-  public Response response() {
-    return null;
-  }
-
-  @Override
-  public SerializationContext context() {
-    return null;
-  }
+public record UdpRs(
+  MsgKey key,
+  InetSocketAddress address,
+  Response response,
+  SerializationContext context
+) implements ServerResponse {
 
   @Override
   public long id() {
-    return 0;
+    return key.id();
   }
 
   @Override
   public int stream() {
-    return 0;
+    return key.stream();
   }
 }

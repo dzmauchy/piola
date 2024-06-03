@@ -22,7 +22,6 @@ package org.dauch.piola.benchmark.bytebuffer;
  * #L%
  */
 
-import lombok.AllArgsConstructor;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.infra.Blackhole;
 import org.openjdk.jmh.runner.Runner;
@@ -91,10 +90,7 @@ public class ByteBufferFindBenchmark {
     int find(ByteBuffer buffer);
   }
 
-  @AllArgsConstructor
-  private static final class ArrayFinder implements BufferFinder {
-
-    private final ByteBuffer[] array;
+  private record ArrayFinder(ByteBuffer[] array) implements BufferFinder {
 
     @Override
     public int find(ByteBuffer buffer) {

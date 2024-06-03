@@ -32,7 +32,8 @@ public record ErrorResponse(@Id(1) String error, @Id(2) @Custom ExceptionData ex
   TopicCreateResponse,
   TopicDeleteResponse,
   TopicGetResponse,
-  TopicListResponse {
+  TopicListResponse,
+  DataSendResponse {
 
   public ResponseException toException() {
     return new ResponseException(error, exception);

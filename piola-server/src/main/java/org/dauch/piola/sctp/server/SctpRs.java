@@ -23,26 +23,13 @@ package org.dauch.piola.sctp.server;
  */
 
 import com.sun.nio.sctp.MessageInfo;
-import org.dauch.piola.api.ResponseFactory;
 import org.dauch.piola.api.SerializationContext;
 import org.dauch.piola.api.response.Response;
 import org.dauch.piola.server.ServerResponse;
 
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 
-record SctpRs(
-  long id,
-  MessageInfo message,
-  Response response,
-  SerializationContext context
-) implements ServerResponse {
-
-  public ByteBuffer write(ByteBuffer target) {
-    ResponseFactory.write(response, target.putLong(id));
-    context.write(target);
-    return target.flip();
-  }
+record SctpRs(long id, MessageInfo message, Response response, SerializationContext context) implements ServerResponse {
 
   @Override
   public InetSocketAddress address() {

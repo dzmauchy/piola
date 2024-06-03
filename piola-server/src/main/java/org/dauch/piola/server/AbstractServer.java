@@ -26,34 +26,34 @@ import org.dauch.piola.api.request.*;
 import org.dauch.piola.api.response.ErrorResponse;
 import org.dauch.piola.api.response.Response;
 import org.dauch.piola.buffer.BufferManager;
+import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.util.*;
 
-import java.lang.ref.Cleaner;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
 import java.math.BigInteger;
-import java.util.BitSet;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.concurrent.atomic.AtomicReferenceArray;
-import java.util.function.Consumer;
-import java.util.function.IntFunction;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.util.function.*;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
+import static java.lang.invoke.VarHandle.acquireFence;
+import static java.lang.invoke.VarHandle.releaseFence;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
 import static org.dauch.piola.api.Constants.MAX_STREAMS;
 
 public abstract class AbstractServer<RQ extends ServerRequest, RS extends ServerResponse> extends CompositeCloseable implements Server {
 
-  protected static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("server-cleaner").factory());
-
-  protected final long exitCmd = ThreadLocalRandom.current().nextLong();
+  private static final VarHandle THREADS_VH = MethodHandles.arrayElementVarHandle(Thread[].class);
 
   protected final IntFunction<RQ[]> requestsArrayGenerator;
   protected final IntFunction<RS[]> responsesArrayGenerator;
   protected final int id;
   protected final ServerHandler handler;
-  protected final BufferManager buffers;
+  protected final BufferManager readBuffers;
   protected final BufferManager writeBuffers;
   protected final DrainQueue<RQ> requests;
-  protected final DrainQueue<RS> responses;
 
   protected final BigIntCounter receivedRequests = new BigIntCounter();
   protected final BigIntCounter validRequests = new BigIntCounter();
@@ -68,14 +68,11 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
 
   protected final Thread mainLoopThread;
   protected final Thread requestThread;
-  protected final Thread responseThread;
 
   protected volatile boolean runningRequests = true;
-  protected volatile boolean runningResponses = true;
   protected volatile boolean running = true;
 
-  private final AtomicReferenceArray<Thread> requestThreads = new AtomicReferenceArray<>(MAX_STREAMS);
-  private final AtomicReferenceArray<Thread> responseThreads = new AtomicReferenceArray<>(MAX_STREAMS);
+  private final Thread[] requestThreads = new Thread[MAX_STREAMS];
 
   protected AbstractServer(ServerConfig config, IntFunction<RQ[]> rqs, IntFunction<RS[]> rss) {
     super("Server[" + config.id() + "]");
@@ -83,16 +80,14 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     this.requestsArrayGenerator = rqs;
     this.responsesArrayGenerator = rss;
     try {
-      buffers = $("read-buffers", new BufferManager("server-read", config));
-      writeBuffers = $("write-buffers", new BufferManager("server-write", config));
-      handler = $("handler", new ServerHandler(logger, config.baseDir()));
+      writeBuffers = $("writeBuffers", new BufferManager("server-write", config));
+      readBuffers = $("readBuffers", new BufferManager("server-read", config));
+      handler = new ServerHandler(logger, config.baseDir());
       requests = new DrainQueue<>(config.queueSize(), rqs);
-      responses = new DrainQueue<>(config.queueSize(), rss);
       requestThread = Thread.ofVirtual().name("request-thread-" + config.id()).unstarted(this::requestLoop);
-      responseThread = Thread.ofVirtual().name("response-thread-" + config.id()).unstarted(this::responseLoop);
       mainLoopThread = Thread.ofVirtual().name("server-loop-" + config.id()).unstarted(this::mainLoop);
     } catch (Throwable e) {
-      throw initException(new IllegalStateException("Unable to initialize server", e));
+      throw constructorException(new IllegalStateException("Unable to initialize server", e));
     }
   }
 
@@ -156,74 +151,119 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     return running;
   }
 
-  protected abstract void requestLoop();
-  protected abstract void responseLoop();
-  protected abstract void doSendShutdownSequence() throws Exception;
   protected abstract void mainLoop();
+  protected abstract InetSocketAddress sendShutdownSequence();
+
+  protected void closeMainLoop() {
+    running = false;
+    Threads.close(mainLoopThread, this::sendShutdownSequence, logger);
+    while (true) {
+      int c = 0;
+      for (int i = 0; i < requestThreads.length; i++) {
+        acquireFence();
+        var thread = requestThreads[i];
+        if (thread != null) {
+          c++;
+          while (true) {
+            try {
+              thread.join();
+              break;
+            } catch (InterruptedException _) {
+              logger.log(INFO, "Interrupted on joining thread " + i);
+            }
+          }
+        }
+      }
+      if (c > 0) {
+        logger.log(INFO, c + " threads were joined");
+      } else {
+        break;
+      }
+    }
+  }
 
   protected void startThreads() {
-    $("responses-thread", responseThread::join);
-    $("responses", () -> responses.awaitEmpty(() -> runningResponses = false));
+    $("handler", handler);
     $("requests-thread", requestThread::join);
     $("requests", () -> requests.awaitEmpty(() -> runningRequests = false));
-    $("mainLoopThread", mainLoopThread::join);
-    $("mainLoop", this::sendShutdownSequence);
+    $("mainLoop", this::closeMainLoop);
     requestThread.start();
-    responseThread.start();
     mainLoopThread.start();
   }
 
-  protected final void doProcess(RQ element, Consumer<? super Response> responses) throws Exception {
+  protected final void doProcess(RQ element, BiConsumer<ByteBuffer, ? super Response> responses) throws Exception {
     var request = element.request();
     switch (request) {
       case UnknownRequest r -> {
         unknownRequests.increment();
-        responses.accept(new ErrorResponse("Unknown request: " + r.code(), null));
+        responses.accept(null, new ErrorResponse("Unknown request: " + r.code(), null));
       }
-      case TopicCreateRequest r -> handler.createTopic(r, responses);
-      case TopicDeleteRequest r -> handler.deleteTopic(r, responses);
-      case TopicGetRequest r -> handler.getTopic(r, responses);
-      case TopicListRequest r -> handler.listTopics(r, responses);
-      case SendDataRequest r -> handler.addData(r, element, responses);
+      case TopicCreateRequest r -> handler.createTopic(r, rs -> responses.accept(null, rs));
+      case TopicDeleteRequest r -> handler.deleteTopic(r, rs -> responses.accept(null, rs));
+      case TopicGetRequest r -> handler.getTopic(r, rs -> responses.accept(null, rs));
+      case TopicListRequest r -> handler.listTopics(r, rs -> responses.accept(null, rs));
+      case DataSendRequest r -> handler.sendData(r, element, rs -> responses.accept(null, rs));
     }
   }
 
-  protected void drainRequests(Consumer<RQ> sink) {
+  protected void drainRequests(Predicate<RQ> sink) {
     var rqs = requestsArrayGenerator.apply(requests.capacity());
     drain(requestThreads, requests.drain(rqs), rqs, sink);
   }
 
-  protected void drainResponses(Consumer<RS> sink) {
-    var rss = responsesArrayGenerator.apply(responses.capacity());
-    drain(responseThreads, responses.drain(rss), rss, sink);
-  }
+  protected abstract void writeResponse(RQ rq, ByteBuffer payload, Response rs) throws Exception;
+  protected abstract void reject(RQ rq);
 
-  private void sendShutdownSequence() throws Exception {
+  protected boolean processRequest(RQ r) {
     try {
-      doSendShutdownSequence();
-    } finally {
-      running = false;
+      doProcess(r, (b, rs) -> {
+        try {
+          writeResponse(r, b, rs);
+        } catch (Throwable e) {
+          throw new BreakException(e);
+        }
+      });
+      return false;
+    } catch (BreakException e) {
+      logger.log(INFO, () -> "Write exception " + r, e.getCause());
+      reject(r);
+      return true;
+    } catch (Throwable e) {
+      logger.log(ERROR, () -> "Unable to process request " + r, e);
+      try {
+        writeResponse(r, null, new ErrorResponse("Unknown error", ExceptionData.from(e)));
+        return false;
+      } catch (Throwable x) {
+        logger.log(INFO, () -> "Write exception " + r, x);
+        reject(r);
+        return true;
+      }
     }
   }
 
-  private <T extends Streamed> void drain(AtomicReferenceArray<Thread> ths, int count, T[] t, Consumer<T> sink) {
+  private void requestLoop() {
+    while (runningRequests) {
+      drainRequests(this::processRequest);
+    }
+  }
+
+  private <T extends ServerRequest> void drain(Thread[] ths, int count, T[] t, Predicate<T> sink) {
     if (count == 0) {
       parkNanos(1_000_000L);
       return;
     }
-    var passed = new BitSet();
     for (int start = 0; start < count; ) {
       var hasNonVisited = false;
       for (int i = start; i < count; i++) {
+        acquireFence();
         var e = t[i];
-        if (e == null || passed.get(e.stream())) {
+        if (e == null) {
           if (!hasNonVisited) start++;
           continue;
         }
         var thread = sink(ths, i, count, t, sink);
-        if (ths.compareAndSet(e.stream(), null, thread)) {
+        if (THREADS_VH.compareAndSet(ths, e.stream(), null, thread)) {
           thread.start();
-          passed.set(e.stream());
           if (!hasNonVisited) start++;
         } else {
           hasNonVisited = true;
@@ -237,22 +277,50 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     }
   }
 
-  private <T extends Streamed> Thread sink(AtomicReferenceArray<Thread> a, int i, int count, T[] t, Consumer<T> sink) {
-    return Thread.ofVirtual().unstarted(() -> {
-      var s = t[i].stream();
+  private <T extends ServerRequest> Thread sink(Thread[] a, int i, int count, T[] t, Predicate<T> sink) {
+    var s = t[i].stream();
+    var threadName = "requests-" + id + "-" + s;
+    return Thread.ofVirtual().name(threadName).unstarted(() -> {
       try {
         for (int k = i; k < count; k++) {
           var e = t[k];
           if (e.stream() == s) {
-            sink.accept(e);
-            t[k] = null; // free objects as soon as possible
+            t[k] = null;
+            releaseFence();
+            if (sink.test(e)) {
+              for (k++; k < count; k++) {
+                e = t[k];
+                t[k] = null;
+                releaseFence();
+                var buf = e.buffer();
+                if (buf != null) {
+                  readBuffers.release(buf);
+                }
+              }
+            }
+            var buf = e.buffer();
+            if (buf != null) {
+              readBuffers.release(buf);
+            }
           }
         }
       } catch (Throwable unexpectedError) {
         logger.log(ERROR, "Unexpected exception", unexpectedError);
       } finally {
-        a.set(s, null);
+        a[s] = null;
+        releaseFence();
       }
     });
+  }
+
+  @Override
+  public String toString() {
+    return getClass().getSimpleName() + "(" + id + ")";
+  }
+
+  private static final class BreakException extends RuntimeException {
+    private BreakException(Throwable cause) {
+      super(null, cause, false, false);
+    }
   }
 }

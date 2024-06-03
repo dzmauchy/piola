@@ -36,64 +36,48 @@ import static java.net.StandardSocketOptions.*;
 
 public interface UdpUtils {
 
+  byte RT_FRAGMENT = 1;
+  byte RT_ACK = 2;
+
   static void configure(DatagramChannel channel, ServerClientConfig config) throws IOException {
-    channel.setOption(SO_REUSEPORT, true);
+    var supportedOptions = channel.supportedOptions();
+    if (supportedOptions.contains(SO_REUSEPORT)) {
+      channel.setOption(SO_REUSEPORT, true);
+    }
     channel.setOption(SO_REUSEADDR, true);
     channel.setOption(SO_RCVBUF, config.rcvBufSize());
     channel.setOption(SO_SNDBUF, config.sendBufSize());
-    channel.setOption(SO_LINGER, config.linger());
     channel.configureBlocking(true);
   }
 
   static void configureAfter(DatagramChannel channel, ServerClientConfig config) throws IOException {
     channel.setOption(IP_MULTICAST_TTL, config.multicastTtl());
-    channel.setOption(IP_MULTICAST_IF, config.multicastNetworkInterface());
     channel.setOption(IP_MULTICAST_LOOP, config.multicastLoop());
   }
 
-  static boolean isExitSequence(DatagramChannel ch, InetSocketAddress a, ByteBuffer buf, long cmd) throws IOException {
-    var thisAddr = (InetSocketAddress) ch.getLocalAddress();
-    if (thisAddr.getPort() != a.getPort()) {
-      return false;
-    }
-    if (!a.getAddress().isLoopbackAddress()) {
-      return false;
-    }
-    if (buf.remaining() != Long.BYTES) {
-      return false;
-    }
-    var actual = buf.getLong(buf.position());
-    return actual == cmd;
+  static InetSocketAddress localAddress(StandardProtocolFamily family, int port) {
+    return switch (family) {
+      case INET -> new InetSocketAddress("127.0.0.1", port);
+      case INET6 -> new InetSocketAddress("::1", port);
+      default -> throw new IllegalArgumentException(family.name());
+    };
   }
 
-  static void sendExitSequence(DatagramChannel channel, long cmd) throws IOException {
+  static InetSocketAddress sendExitSequence(DatagramChannel channel) throws IOException {
     var addr = (InetSocketAddress) channel.getLocalAddress();
     var port = addr.getPort();
     var family = (addr.getAddress() instanceof Inet4Address) ? INET : INET6;
-    try (var newChannel = DatagramChannel.open(family)) {
-      newChannel.setOption(SO_REUSEPORT, true);
-      newChannel.setOption(SO_REUSEADDR, true);
-      newChannel.configureBlocking(true);
-      if (family == INET) {
-        newChannel.bind(new InetSocketAddress(Inet4Address.ofLiteral("127.0.0.1"), port));
-      } else {
-        newChannel.bind(new InetSocketAddress(Inet6Address.ofLiteral("::1"), port));
-      }
-      if (addr.getAddress().isAnyLocalAddress()) {
-        newChannel.connect(newChannel.getLocalAddress());
-      } else {
-        newChannel.connect(channel.getLocalAddress());
-      }
-      newChannel.write(ByteBuffer.allocate(Long.BYTES).putLong(0, cmd));
+    var buf = ByteBuffer.allocate(1);
+    if (addr.getAddress().isAnyLocalAddress()) {
+      addr = localAddress(family, port);
     }
+    channel.send(buf, addr);
+    return addr;
   }
 
-  static void validateCrc(ByteBuffer buffer) {
-    var checksum = buffer.getInt();
+  static void validateCrc(int checksum, ByteBuffer buffer) {
     var crc = new CRC32();
-    buffer.mark();
-    crc.update(buffer);
-    buffer.reset();
+    crc.update(buffer.slice());
     if (Integer.toUnsignedLong(checksum) != crc.getValue())
       throw new DataCorruptionException("checksum mismatch", null);
   }

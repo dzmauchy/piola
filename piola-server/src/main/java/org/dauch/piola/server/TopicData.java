@@ -26,51 +26,41 @@ import org.dauch.piola.attributes.FileAttrs;
 import org.dauch.piola.util.MoreFiles;
 
 import java.io.IOException;
-import java.nio.file.NoSuchFileException;
+import java.lang.foreign.Arena;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.spi.FileSystemProvider;
-import java.util.EnumSet;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
-import static java.nio.channels.FileChannel.open;
-import static java.nio.file.StandardOpenOption.*;
+final class TopicData implements AutoCloseable {
 
-final class TopicData {
-
+  private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private final Path directory;
-  private final FileSystemProvider provider;
+  private Arena arena;
   private FileAttrs attrs;
-  final String topic;
-  TopicData next;
 
-  TopicData(Path directory, String topic) {
+  TopicData(Path directory) {
     this.directory = directory;
-    this.provider = directory.getFileSystem().provider();
-    this.topic = topic;
   }
 
-  FileAttrs readFileAttrs() throws Exception {
+  FileAttrs readFileAttrs() {
     if (attrs != null) {
       return attrs;
-    }
-    var attrsFile = directory.resolve("attributes.data");
-    if (provider.exists(attrsFile)) {
-      try (var ch = open(attrsFile, EnumSet.of(READ, WRITE))) {
-        return attrs = new FileAttrs(ch.map(READ_WRITE, 0L, ch.size()));
-      } catch (NoSuchFileException _) {
-        return null;
+    } else {
+      if (arena == null) {
+        arena = Arena.ofShared();
       }
-    } else if (provider.exists(directory)) {
-      try (var ch = open(attrsFile, EnumSet.of(READ, WRITE, CREATE_NEW, SPARSE))) {
-        return attrs = new FileAttrs(ch.map(READ_WRITE, 0L, 1L << 16));
-      }
+      return attrs = new FileAttrs(directory.resolve("attributes.data"), arena, false);
     }
-    return null;
   }
 
   boolean delete() throws IOException {
     if (MoreFiles.deleteRecursively(directory)) {
-      attrs = null;
+      if (arena instanceof Arena a) {
+        try (a) {
+          attrs = null;
+        }
+        arena = null;
+      }
       return true;
     } else {
       return false;
@@ -78,15 +68,40 @@ final class TopicData {
   }
 
   boolean exists() {
-    return provider.exists(directory);
+    return Files.exists(directory);
   }
 
   void create() throws Exception {
-    provider.createDirectory(directory);
+    Files.createDirectory(directory);
+  }
+
+  void withReadLock(Runnable task) {
+    lock.readLock().lock();
+    try {
+      task.run();
+    } finally {
+      lock.readLock().unlock();
+    }
+  }
+
+  void withWriteLock(Runnable task) {
+    lock.writeLock().lock();
+    try {
+      task.run();
+    } finally {
+      lock.writeLock().unlock();
+    }
+  }
+
+  @Override
+  public void close() {
+    if (arena != null) {
+      arena.close();
+    }
   }
 
   @Override
   public String toString() {
-    return topic;
+    return directory.getFileName().toString();
   }
 }

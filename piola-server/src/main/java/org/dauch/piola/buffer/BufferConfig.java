@@ -29,4 +29,5 @@ public interface BufferConfig {
   int bufferCount();
   int maxMessageSize();
   float freeRatio();
+  boolean sparse();
 }

@@ -25,21 +25,28 @@ package org.dauch.piola.udp;
 import org.dauch.piola.buffer.BufferConfig;
 import org.dauch.piola.buffer.BufferManager;
 
-import java.net.NetworkInterface;
+import java.util.concurrent.TimeUnit;
 
 public interface ServerClientConfig extends BufferConfig {
 
   int rcvBufSize();
   int sendBufSize();
-  int linger();
-  NetworkInterface multicastNetworkInterface();
   int multicastTtl();
   boolean multicastLoop();
-  int fragmentTimeout();
+  int messageAssemblyTimeout();
+  int ackTimeout();
   int maxFragmentSize();
   int fragmentBufferCount();
 
-  default BufferManager fragmentBuffers() {
-    return new BufferManager("udp-", bufferDir(), fragmentBufferCount(), maxFragmentSize(), 0.5f);
+  default BufferManager fragmentBuffers(String suffix) {
+    return new BufferManager("udp-" + suffix, bufferDir(), fragmentBufferCount(), maxFragmentSize(), 0.5f, sparse());
+  }
+
+  default long messageAssemblyTimeoutNanos() {
+    return TimeUnit.MILLISECONDS.toNanos(messageAssemblyTimeout());
+  }
+
+  default long ackTimeoutNanos() {
+    return TimeUnit.MILLISECONDS.toNanos(ackTimeout());
   }
 }

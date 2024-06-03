@@ -26,36 +26,47 @@ import org.dauch.piola.util.Serialization;
 
 import java.nio.ByteBuffer;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public record ExceptionData(String type, String message, ExceptionData cause, StackTraceLine[] stackTrace, ExceptionData[] suppressed) {
+public record ExceptionData(
+  int id,
+  String type,
+  String message,
+  ExceptionData cause,
+  StackTraceLine[] stackTrace,
+  ExceptionData[] suppressed
+) {
 
   public static ExceptionData from(Throwable e) {
-    return from(e, new IdentityHashMap<>(1));
+    return from(e, new IdentityHashMap<>(1), new AtomicInteger());
   }
 
-  private static ExceptionData from(Throwable throwable, IdentityHashMap<Throwable, Boolean> passed) {
+  private static ExceptionData from(Throwable throwable, IdentityHashMap<Throwable, Integer> passed, AtomicInteger c) {
     if (throwable == null) {
       return null;
     }
-    if (passed.put(throwable, Boolean.TRUE) == null) {
-      var type = throwable.getClass().getName();
-      var msg = Objects.requireNonNull(throwable.getMessage(), "");
-      var cause = from(throwable.getCause(), passed);
+    var type = throwable.getClass().getName();
+    var msg = Objects.requireNonNull(throwable.getMessage(), "");
+    var id = c.getAndIncrement();
+    var oldId = passed.put(throwable, id);
+    if (oldId == null) {
+      var cause = from(throwable.getCause(), passed, c);
       var suppressed = Arrays.stream(throwable.getSuppressed())
-        .map(e -> from(e, passed))
+        .map(e -> from(e, passed, c))
         .filter(Objects::nonNull)
         .toArray(ExceptionData[]::new);
       var stacktrace = Arrays.stream(throwable.getStackTrace())
         .filter(e -> e.getClassName().startsWith("org.dauch."))
         .map(e -> new StackTraceLine(e.getClassName(), e.getMethodName(), e.getLineNumber()))
         .toArray(StackTraceLine[]::new);
-      return new ExceptionData(type, msg, cause, stacktrace, suppressed);
+      return new ExceptionData(id, type, msg, cause, stacktrace, suppressed);
     } else {
-      return null;
+      return new ExceptionData(oldId, "", "", null, new StackTraceLine[0], new ExceptionData[0]);
     }
   }
 
   public static ExceptionData read(ByteBuffer buffer) {
+    var id = buffer.getInt();
     var type = Serialization.read(buffer, (String) null);
     var message = Serialization.read(buffer, (String) null);
     var cause = Serialization.read(buffer, (ExceptionData) null);
@@ -67,10 +78,11 @@ public record ExceptionData(String type, String message, ExceptionData cause, St
     for (int i = 0; i < sup.length; i++) {
       sup[i] = ExceptionData.read(buffer);
     }
-    return new ExceptionData(type, message, cause, stc, sup);
+    return new ExceptionData(id, type, message, cause, stc, sup);
   }
 
   public void write(ByteBuffer buffer) {
+    buffer.putInt(id);
     Serialization.write(buffer, type);
     Serialization.write(buffer, message);
     Serialization.write(buffer, cause);
@@ -82,5 +94,17 @@ public record ExceptionData(String type, String message, ExceptionData cause, St
     for (var s : suppressed) {
       s.write(buffer);
     }
+  }
+
+  @Override
+  public String toString() {
+    return "Exception(%d,%s,%s,%s,%s,%s)".formatted(
+      id,
+      type,
+      message,
+      cause,
+      Arrays.toString(stackTrace),
+      Arrays.toString(suppressed)
+    );
   }
 }

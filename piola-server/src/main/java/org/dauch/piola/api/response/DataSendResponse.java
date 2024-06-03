@@ -1,4 +1,4 @@
-package org.dauch.piola.server;
+package org.dauch.piola.api.response;
 
 /*-
  * #%L
@@ -22,7 +22,5 @@ package org.dauch.piola.server;
  * #L%
  */
 
-public interface Streamed {
-  long id();
-  int stream();
+public sealed interface DataSendResponse extends Response permits DataReceivedResponse, ErrorResponse {
 }

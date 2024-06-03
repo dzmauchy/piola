@@ -32,6 +32,8 @@ import java.nio.ByteBuffer;
 
 public record UdpRq(
   MsgKey key,
+  int protocolId,
+  int fragmentLength,
   InetSocketAddress address,
   Request<?> request,
   ByteBuffer buffer,

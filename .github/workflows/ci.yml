@@ -17,9 +17,9 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '22'
-          distribution: 'oracle'
+          distribution: 'zulu'
       - name: Build
-        run: ./mvnw install
+        run: ./mvnw --no-transfer-progress install
   windows_build:
     runs-on: windows-latest
     steps:
@@ -29,9 +29,9 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '22'
-          distribution: 'oracle'
+          distribution: 'semeru'
       - name: Build
-        run: .\mvnw.cmd install
+        run: .\mvnw.cmd --no-transfer-progress install
   macos_build:
     runs-on: macos-latest
     steps:
@@ -41,6 +41,6 @@ jobs:
         uses: actions/setup-java@v4
         with:
           java-version: '22'
-          distribution: 'oracle'
+          distribution: 'zulu'
       - name: Build
-        run: ./mvnw install
+        run: ./mvnw --no-transfer-progress install

@@ -1,4 +1,4 @@
-package org.dauch.piola.benchmark.queue;
+package org.dauch.piola.udp.fragment;
 
 /*-
  * #%L
@@ -22,14 +22,28 @@ package org.dauch.piola.benchmark.queue;
  * #L%
  */
 
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
+import java.nio.ByteBuffer;
 
-@Tag("benchmark")
-class DrainBenchmarkTest {
+public enum MessageStatus {
+  COMPLETED,
+  COMPLETED_WITH_ERROR,
+  NON_COMPLETED,
+  TO_BE_CLEANED,
+  USED;
 
-  @Test
-  void benchmark() throws Exception {
-    DrainBenchmark.main();
+  public byte code() {
+    return (byte) ordinal();
+  }
+
+  public void write(ByteBuffer buffer) {
+    buffer.put((byte) ordinal());
+  }
+
+  public static MessageStatus byCode(byte code) {
+    return switch (code) {
+      case 0 -> COMPLETED;
+      case 1 -> COMPLETED_WITH_ERROR;
+      default -> NON_COMPLETED;
+    };
   }
 }

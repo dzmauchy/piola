@@ -24,24 +24,20 @@ package org.dauch.piola.sctp.server;
 
 import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.SctpMultiChannel;
-import org.dauch.piola.api.RequestFactory;
-import org.dauch.piola.api.SerializationContext;
-import org.dauch.piola.api.response.ErrorResponse;
+import org.dauch.piola.api.*;
 import org.dauch.piola.api.response.Response;
-import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.sctp.SctpUtils;
 import org.dauch.piola.server.AbstractServer;
 
 import java.io.*;
 import java.net.*;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
-import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static com.sun.nio.sctp.MessageInfo.createOutgoing;
-import static java.lang.System.Logger.Level.ERROR;
-import static java.lang.System.Logger.Level.INFO;
+import static java.lang.System.Logger.Level.*;
 
 public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
 
@@ -58,14 +54,8 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
       }
       startThreads();
     } catch (Throwable e) {
-      throw initException(new IllegalStateException("Unable to start server " + id));
+      throw constructorException(new IllegalStateException("Unable to start server " + id));
     }
-  }
-
-  @Override
-  protected void doSendShutdownSequence() throws Exception {
-    var addr = SctpUtils.sendExitSequence(channel, exitCmd);
-    logger.log(INFO, () -> "Shutdown sequence sent to " + addr);
   }
 
   @Override
@@ -99,15 +89,19 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
   @Override
   protected void mainLoop() {
     while (true) {
-      var buf = buffers.get();
+      var buf = readBuffers.get();
       try {
-        doInMainLoop(buf);
+        var msg = channel.receive(buf, null, null);
+        if (!running) {
+          throw new InterruptedException("Not running");
+        }
+        doInMainLoop(buf, msg);
       } catch (ClosedChannelException | InterruptedException _) {
-        buffers.release(buf);
+        readBuffers.release(buf);
         logger.log(INFO, "Closed");
         break;
       } catch (Throwable e) {
-        buffers.release(buf);
+        readBuffers.release(buf);
         logger.log(ERROR, "Unexpected exception", e);
         unexpectedErrors.increment();
       }
@@ -115,26 +109,52 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
     logger.log(INFO, "Main loop finished");
   }
 
-  private void doInMainLoop(ByteBuffer buf) throws Exception {
-    var msg = channel.receive(buf, null, null);
+  private void doInMainLoop(ByteBuffer buf, MessageInfo msg) throws Exception {
     receivedSize.add(msg.bytes());
     receivedRequests.increment();
-    if (SctpUtils.isExitSequence(channel, msg, buf, exitCmd)) {
-      logger.log(INFO, () -> "Exit sequence received " + msg);
-      throw new InterruptedException();
-    } else if (msg.isComplete()) {
-      try {
-        read(msg, buf);
-        validRequests.increment();
-      } catch (Throwable e) {
-        logger.log(ERROR, () -> "Exception " + msg, e);
-        brokenRequests.increment();
-        closeAssociation(msg);
-      }
-    } else {
-      logger.log(ERROR, () -> "Incomplete message: " + msg);
-      closeAssociation(msg);
+    if (!msg.isComplete()) {
       incompleteRequests.increment();
+      try {
+        while (true) {
+          var m = channel.receive(buf, null, null);
+          checkIncomplete(msg, m);
+          receivedSize.add(m.bytes());
+          if (m.isComplete()) {
+            break;
+          } else if (!buf.hasRemaining()) {
+            closeAssociation(msg);
+            closeAssociation(m);
+            throw new BufferOverflowException();
+          }
+        }
+      } catch (Throwable e) {
+        readBuffers.release(buf);
+        throw e;
+      }
+    }
+    try {
+      read(msg, buf);
+      validRequests.increment();
+    } catch (Throwable e) {
+      readBuffers.release(buf);
+      logger.log(ERROR, () -> "Unknown exception " + msg, e);
+      brokenRequests.increment();
+      closeAssociation(msg);
+    }
+  }
+
+  private void checkIncomplete(MessageInfo msg, MessageInfo m) throws Exception {
+    try {
+      if (m.streamNumber() != msg.streamNumber())
+        throw new StreamCorruptedException("Stream number mismatch: " + m);
+      if (m.payloadProtocolID() != msg.payloadProtocolID())
+        throw new StreamCorruptedException("Payload protocol ID mismatch: " + m);
+      if (m.association().associationID() != msg.association().associationID())
+        throw new StreamCorruptedException("Association mismatch: " + m);
+    } catch (StreamCorruptedException e) {
+      closeAssociation(msg);
+      closeAssociation(m);
+      throw e;
     }
   }
 
@@ -145,65 +165,51 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
     if (req.hasPayload()) {
       requests.put(new SctpRq(id, msg, req, buffer, context));
     } else {
-      buffers.release(buffer);
       requests.put(new SctpRq(id, msg, req, null, context));
+      readBuffers.release(buffer);
     }
   }
 
   @Override
-  protected void requestLoop() {
-    while (runningRequests) {
-      drainRequests(this::process);
-    }
-  }
-
-  private void process(SctpRq r) {
-    var rsc = (Consumer<? super Response>) rs -> {
-      try {
-        responses.put(new SctpRs(r.id(), r.meta(), rs, r.context()));
-      } catch (Throwable e) {
-        logger.log(ERROR, () -> "Unexpected exception", e);
-        closeAssociation(r.meta());
-      }
-    };
-    try {
-      doProcess(r, rsc);
-    } catch (Throwable e) {
-      logger.log(ERROR, () -> "Unable to process request " + r, e);
-      rsc.accept(new ErrorResponse("Unknown error", ExceptionData.from(e)));
-    }
+  protected void reject(SctpRq sctpRq) {
+    closeAssociation(sctpRq.meta());
   }
 
   @Override
-  protected void responseLoop() {
-    while (runningResponses) {
-      drainResponses(this::writeResponse);
-    }
-  }
-
-  private void writeResponse(SctpRs el) {
-    var inp = el.message();
+  protected void writeResponse(SctpRq rq, ByteBuffer payload, Response r) throws Exception {
+    var msg = createOutgoing(rq.meta().association(), rq.meta().address(), rq.meta().streamNumber());
+    var buf = writeBuffers.get();
     try {
-      var msg = createOutgoing(inp.association(), inp.address(), inp.streamNumber());
-      var buf = writeBuffers.get().putInt(id);
-      try {
-        var count = channel.send(el.write(buf), msg);
-        sentSize.add(count);
-        sentMessages.increment();
-      } finally {
-        writeBuffers.release(buf);
+      ResponseFactory.write(r, buf.putInt(id).putLong(rq.id()));
+      rq.context().write(buf);
+      if (payload != null) {
+        buf.put(payload);
       }
-    } catch (Throwable e) {
-      closeAssociation(inp);
-      logger.log(ERROR, () -> "Unable to write response to " + inp, e);
+      var count = channel.send(buf.flip(), msg);
+      sentSize.add(count);
+      sentMessages.increment();
+    } finally {
+      writeBuffers.release(buf);
     }
   }
 
   private void closeAssociation(MessageInfo messageInfo) {
     try {
       channel.shutdown(messageInfo.association());
+    } catch (IllegalArgumentException _) {
+      logger.log(TRACE, () -> "Already closed " + messageInfo.association());
     } catch (Throwable e) {
       logger.log(ERROR, () -> "Unable to close the association " + messageInfo.association(), e);
+    }
+  }
+
+  @Override
+  protected InetSocketAddress sendShutdownSequence() {
+    try {
+      return SctpUtils.sendExitSequence(channel);
+    } catch (Throwable e) {
+      logger.log(ERROR, "Unable to send shutdown sequence", e);
+      return null;
     }
   }
 }

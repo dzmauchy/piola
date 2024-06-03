@@ -34,4 +34,5 @@ public interface ClientMXBean {
   BigInteger getBrokenResponses();
   BigInteger getUnknownResponses();
   BigInteger getErrorResponses();
+  BigInteger getForgottenResponses();
 }

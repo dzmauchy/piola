@@ -126,4 +126,23 @@ public final class Serialization {
     buffer.putInt(value.length);
     for (var v : value) write(buffer, v);
   }
+
+  public static void write(ByteBuffer buffer, Id id) {
+    buffer.putLong(id.value());
+  }
+
+  public static Id read(ByteBuffer buffer, Id value) {
+    return new Id(buffer.getLong());
+  }
+
+  public static void write(ByteBuffer buffer, Instant instant) {
+    buffer.putLong(instant.getEpochSecond());
+    buffer.putInt(instant.getNano());
+  }
+
+  public static Instant read(ByteBuffer buffer, Instant value) {
+    var seconds = buffer.getLong();
+    var nanos = buffer.getInt();
+    return Instant.ofEpochSecond(seconds, nanos);
+  }
 }

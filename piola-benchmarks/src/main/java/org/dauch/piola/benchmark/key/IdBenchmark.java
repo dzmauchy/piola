@@ -30,9 +30,7 @@ import org.openjdk.jmh.runner.options.OptionsBuilder;
 
 import java.lang.invoke.MethodHandles;
 import java.util.concurrent.TimeUnit;
-
-import static java.lang.Long.MAX_VALUE;
-import static java.util.stream.LongStream.range;
+import java.util.stream.LongStream;
 
 @Fork(value = 1, jvmArgs = "-Xmx4g")
 @BenchmarkMode(Mode.AverageTime)
@@ -54,14 +52,14 @@ public class IdBenchmark {
   @Benchmark
   @OperationsPerInvocation(OPS)
   public void encode(Blackhole bh) {
-    for (var v = MAX_VALUE - OPS; v < MAX_VALUE; v++) {
+    for (var v = Long.MAX_VALUE - OPS; v < Long.MAX_VALUE; v++) {
       bh.consume(Id.encode(v));
     }
   }
 
   @State(Scope.Benchmark)
   public static class DecodeState {
-    private final String[] data = range(MAX_VALUE - OPS, MAX_VALUE).mapToObj(Id::encode).toArray(String[]::new);
+    private final String[] data = LongStream.range(Long.MAX_VALUE - OPS, Long.MAX_VALUE).mapToObj(Id::encode).toArray(String[]::new);
   }
 
   public static void main(String... args) throws Exception {

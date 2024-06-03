@@ -29,7 +29,7 @@ public sealed interface Request<R extends Response> permits
   TopicDeleteRequest,
   TopicGetRequest,
   TopicListRequest,
-  SendDataRequest,
+  DataSendRequest,
   UnknownRequest {
 
   default boolean hasPayload() {

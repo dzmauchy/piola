@@ -22,11 +22,143 @@ package org.dauch.piola.util;
  * #L%
  */
 
+import java.math.BigInteger;
+import java.time.*;
+import java.util.*;
+
+import static java.math.BigInteger.ONE;
 import static java.nio.charset.StandardCharsets.ISO_8859_1;
 
-public final class Id {
+public record Id(long value) {
 
-  private Id() {
+  public Id(Instant instant) {
+    this(instant.toEpochMilli());
+  }
+
+  public Id(LocalDateTime dateTime) {
+    this(dateTime.toInstant(ZoneOffset.UTC));
+  }
+
+  public Id(ZonedDateTime dateTime) {
+    this(dateTime.toInstant());
+  }
+
+  public Id(OffsetDateTime dateTime) {
+    this(dateTime.toInstant());
+  }
+
+  public Id(LocalDate date) {
+    this(date.toEpochDay());
+  }
+
+  public Id(LocalTime time) {
+    this(time.toNanoOfDay());
+  }
+
+  public Id(OffsetTime time) {
+    this(time.toLocalTime().toNanoOfDay());
+  }
+
+  public Id(ZoneOffset offset) {
+    this(offset.getTotalSeconds());
+  }
+
+  public Id(Duration duration) {
+    this(duration.toNanos());
+  }
+
+  public Id(Date date) {
+    this(date.getTime());
+  }
+
+  public Id(String id) {
+    this(decode(id));
+  }
+
+  public Id(Currency currency) {
+    this(currency.getCurrencyCode());
+  }
+
+  public Id(Locale locale) {
+    this(locale.toLanguageTag().replace('-', '_'));
+  }
+
+  public Id(Enum<?> id) {
+    this(id.ordinal());
+  }
+
+  public Id(float value) {
+    this(Float.floatToRawIntBits(value));
+  }
+
+  public Id(double value) {
+    this(Double.doubleToRawLongBits(value));
+  }
+
+  public String asString() {
+    return encode(value);
+  }
+
+  public Instant asInstant() {
+    return Instant.ofEpochMilli(value);
+  }
+
+  public LocalDate asLocalDate() {
+    return LocalDate.ofEpochDay(value);
+  }
+
+  public LocalTime asLocalTime() {
+    return LocalTime.ofNanoOfDay(value);
+  }
+
+  public BigInteger asUnsigned() {
+    var v = BigInteger.valueOf(value);
+    return value >= 0L ? v : v.add(ONE.shiftLeft(64));
+  }
+
+  public int asInt() {
+    if (value >= Integer.MIN_VALUE && value <= Integer.MAX_VALUE) {
+      return (int) value;
+    } else {
+      throw new ArithmeticException("Value out of range: " + value);
+    }
+  }
+
+  public short asShort() {
+    if (value >= Short.MIN_VALUE && value <= Short.MAX_VALUE) {
+      return (short) value;
+    } else {
+      throw new ArithmeticException("Value out of range: " + value);
+    }
+  }
+
+  public char asChar() {
+    if (value >= Character.MIN_VALUE && value <= Character.MAX_VALUE) {
+      return (char) value;
+    } else {
+      throw new ArithmeticException("Value is out of range: " + value);
+    }
+  }
+
+  public byte asByte() {
+    if (value >= Byte.MIN_VALUE && value <= Byte.MAX_VALUE) {
+      return (byte) value;
+    } else {
+      throw new ArithmeticException("Value is out of range: " + value);
+    }
+  }
+
+  public float asFloat() {
+    return Float.intBitsToFloat((int) value);
+  }
+
+  public double asDouble() {
+    return Double.longBitsToDouble(value);
+  }
+
+  @Override
+  public String toString() {
+    return Long.toString(value);
   }
 
   public static long decode(String key) {

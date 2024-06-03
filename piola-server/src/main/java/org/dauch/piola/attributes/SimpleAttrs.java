@@ -35,8 +35,12 @@ public final class SimpleAttrs extends Attrs {
   long[] values;
 
   public SimpleAttrs() {
-    keys = new long[0];
-    values = new long[0];
+    this(new long[0], new long[0]);
+  }
+
+  SimpleAttrs(long[] keys, long[] values) {
+    this.keys = keys;
+    this.values = values;
   }
 
   public SimpleAttrs(ByteBuffer buffer) {
@@ -46,16 +50,6 @@ public final class SimpleAttrs extends Attrs {
     for (int i = 0; i < count; i++) {
       keys[i] = buffer.getLong();
       values[i] = buffer.getLong();
-    }
-  }
-
-  public SimpleAttrs(FileAttrs attrs) {
-    keys = new long[attrs.size];
-    values = new long[attrs.size];
-    attrs.buffer.position(0).limit(keys.length << 4);
-    for (int i = 0, l = keys.length; i < l; i++) {
-      keys[i] = attrs.buffer.getLong();
-      values[i] = attrs.buffer.getLong();
     }
   }
 

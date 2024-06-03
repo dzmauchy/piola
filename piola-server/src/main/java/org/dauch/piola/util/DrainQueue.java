@@ -63,7 +63,7 @@ public final class DrainQueue<E> {
   }
 
   public synchronized void awaitEmpty(Runnable onFinish) throws InterruptedException {
-    if (putIndex > 0)
+    while (putIndex > 0)
       wait(0L);
     onFinish.run();
   }

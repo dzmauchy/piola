@@ -43,12 +43,13 @@ public record SctpServerConfig(
   @Default("60") int linger,
   @Default("1 << 20") int rcvBufSize,
   @Default("1 << 20") int sendBufSize,
-  @Default("2 << 20") int maxMessageSize,
+  @Default("1 << 20") int maxMessageSize,
   @Default("256") int queueSize,
-  @Default("64") int bufferCount,
+  @Default("512") int bufferCount,
   @Default("0.25f") float freeRatio,
   @Default("bufferDirDefault()") Path bufferDir,
-  @Default("baseDirDefault()") Path baseDir
+  @Default("baseDirDefault()") Path baseDir,
+  @Default("true") boolean sparse
 ) implements ServerClientConfig, ServerConfig {
 
   public static SctpServerConfig fromProperties(String prefix, Properties properties) {

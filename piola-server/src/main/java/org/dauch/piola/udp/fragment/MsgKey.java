@@ -23,13 +23,23 @@ package org.dauch.piola.udp.fragment;
  */
 
 import org.dauch.piola.exception.DataCorruptionException;
+import org.dauch.piola.util.Addr;
 
+import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.concurrent.ThreadLocalRandom;
 
-public record MsgKey(int stream, long millis, long rnd, long id) implements Comparable<MsgKey> {
+import static java.lang.System.currentTimeMillis;
+import static java.lang.System.nanoTime;
 
-  public MsgKey(ByteBuffer buffer) {
-    this(buffer.getInt(), buffer.getLong(), buffer.getLong(), buffer.getLong());
+public record MsgKey(Addr addr, int stream, long millis, long rnd, long id) implements Comparable<MsgKey> {
+
+  public MsgKey(Addr addr, int stream, long id) {
+    this(addr, stream, currentTimeMillis(), (nanoTime() << 32) | (ThreadLocalRandom.current().nextInt()), id);
+  }
+
+  public MsgKey(InetSocketAddress addr, ByteBuffer buffer) {
+    this(new Addr(addr), buffer.getInt(), buffer.getLong(), buffer.getLong(), buffer.getLong());
     if (stream < 0 || stream >= Character.MAX_VALUE)
       throw new DataCorruptionException("stream out of bounds", null);
     if (millis < 0L)
@@ -38,7 +48,10 @@ public record MsgKey(int stream, long millis, long rnd, long id) implements Comp
 
   @Override
   public int compareTo(MsgKey that) {
-    var cmp = stream - that.stream;
+    var cmp = addr.compareTo(that.addr);
+    if (cmp != 0)
+      return cmp;
+    cmp = stream - that.stream;
     if (cmp != 0)
       return cmp;
     cmp = Long.compare(millis, that.millis);

@@ -28,9 +28,12 @@ import org.dauch.piola.api.request.Request;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
-public interface ServerRequest extends Streamed {
+public interface ServerRequest {
+  long id();
+  int stream();
   InetSocketAddress address();
   Request<?> request();
   ByteBuffer buffer();
   SerializationContext context();
+  int protocolId();
 }

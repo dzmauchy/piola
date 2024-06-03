@@ -30,7 +30,7 @@ import org.dauch.piola.server.ServerRequest;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 
-record SctpRq(
+public record SctpRq(
   long id,
   MessageInfo meta,
   Request<?> request,
@@ -45,5 +45,10 @@ record SctpRq(
   @Override
   public int stream() {
     return meta.streamNumber();
+  }
+
+  @Override
+  public int protocolId() {
+    return meta.payloadProtocolID();
   }
 }

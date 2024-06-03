@@ -55,6 +55,10 @@ public final class FastBitSet {
     words[index >>> 6] |= (1L << index);
   }
 
+  public boolean get(int index) {
+    return (words[index >>> 6] & (1L << index)) != 0;
+  }
+
   public void clear(int index) {
     words[index >>> 6] &= ~(1L << index);
   }

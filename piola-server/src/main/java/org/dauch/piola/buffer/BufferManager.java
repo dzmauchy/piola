@@ -22,17 +22,19 @@ package org.dauch.piola.buffer;
  * #L%
  */
 
-import org.dauch.piola.util.FastBitSet;
-
 import java.io.*;
-import java.lang.foreign.MemorySegment;
+import java.lang.invoke.MethodHandles;
+import java.lang.invoke.VarHandle;
+import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-import java.util.EnumSet;
-import java.util.concurrent.ThreadLocalRandom;
+import java.nio.file.*;
+import java.util.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
-import static java.lang.Character.MAX_RADIX;
+import static java.lang.Math.signum;
+import static java.lang.System.Logger.Level.*;
 import static java.lang.System.nanoTime;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.channels.FileChannel.open;
@@ -40,26 +42,31 @@ import static java.nio.file.StandardOpenOption.*;
 
 public final class BufferManager implements Closeable {
 
+  private static final VarHandle BUFFERS = MethodHandles.arrayElementVarHandle(ByteBuffer[].class);
+
+  private final String prefix;
   private final ByteBuffer[] buffers;
-  private final MemorySegment[] segments;
+  private final ByteBuffer[] buffersInUse;
   private final float freeSpaceRatio;
   private final FileChannel channel;
-  private final FastBitSet state;
+  private final Path file;
 
-  public BufferManager(String prefix, Path directory, int count, int maxBufferSize, float freeSpaceRatio) {
+  public BufferManager(String prefix, Path directory, int count, int maxBufferSize, float freeSpaceRatio, boolean sparse) {
+    this.prefix = prefix;
     this.buffers = new ByteBuffer[count];
-    this.segments = new MemorySegment[count];
     this.freeSpaceRatio = freeSpaceRatio;
-    this.state = new FastBitSet(count);
-    var rand = ThreadLocalRandom.current().nextInt(Integer.MAX_VALUE);
-    var name = prefix + "-" + nanoTime() + "-" + Integer.toString(rand, MAX_RADIX) + ".data";
-    var file = directory.resolve(name);
+    var name = prefix + Long.toUnsignedString(nanoTime(), 32) + ".data";
+    this.file = directory.resolve(name);
     try {
-      channel = open(file, EnumSet.of(CREATE_NEW, READ, WRITE, SPARSE, DELETE_ON_CLOSE));
-      for (int i = count - 1; i >= 0; i--) {
-        var buffer = buffers[i] = channel.map(READ_WRITE, (long) i * (long) maxBufferSize, maxBufferSize);
-        segments[i] = MemorySegment.ofBuffer(buffer);
+      var opts = EnumSet.of(CREATE_NEW, READ, WRITE);
+      if (sparse) {
+        opts.add(SPARSE);
       }
+      channel = open(file, opts);
+      for (int i = count - 1; i >= 0; i--) {
+        buffers[i] = channel.map(READ_WRITE, (long) i * (long) maxBufferSize, maxBufferSize);
+      }
+      buffersInUse = buffers.clone();
     } catch (Throwable e) {
       if (BufferManager.this.channel != null) {
         try {
@@ -77,36 +84,60 @@ public final class BufferManager implements Closeable {
   }
 
   public BufferManager(String prefix, BufferConfig conf) {
-    this(prefix, conf.bufferDir(), conf.bufferCount(), conf.maxMessageSize(), conf.freeRatio());
+    this(prefix, conf.bufferDir(), conf.bufferCount(), conf.maxMessageSize(), conf.freeRatio(), conf.sparse());
+  }
+
+  private ByteBuffer get0() {
+    for (int i = 0, l = buffers.length; i < l; i++) {
+      var buf = buffers[i];
+      if (BUFFERS.compareAndSet(buffersInUse, i, buf, null)) {
+        return buf;
+      }
+    }
+    return null;
   }
 
   public ByteBuffer get() {
-    int slot;
-    do {
-      synchronized (this) {
-        if ((slot = state.trySetFirstClearBit(buffers.length)) >= 0)
-          break;
+    for (var buf = get0(); ; buf = get0()) {
+      if (buf == null) {
+        try {
+          synchronized (buffers) {
+            buffers.wait();
+          }
+        } catch (InterruptedException _) {
+        }
+      } else {
+        return buf;
       }
-      Thread.onSpinWait();
-    } while (true);
-    return buffers[slot];
-  }
-
-  public synchronized void release(ByteBuffer buffer) {
-    var index = find(buffer);
-    state.clear(index);
-    if (needsCleanup(buffer)) {
-      segments[index].fill((byte) 0);
     }
-    buffer.clear();
   }
 
-  private int find(ByteBuffer buffer) {
+  public void release(ByteBuffer buf) {
+    var index = find(buf);
+    if (needsCleanup(buf)) {
+      cleanup(buf);
+    }
+    if (BUFFERS.compareAndSet(buffersInUse, index, null, buf.clear())) {
+      synchronized (buffers) {
+        buffers.notify();
+      }
+    } else {
+      throw new IllegalStateException("Unable to return the buffer " + buf + " to the pool " + prefix);
+    }
+  }
+
+  private void cleanup(ByteBuffer buffer) {
+    for (int i = 0, c = buffer.capacity(); i < c; i++) {
+      buffer.put(i, (byte) 0);
+    }
+  }
+
+  public int find(ByteBuffer buffer) {
     var bs = buffers;
     for (int i = 0, l = bs.length; i < l; i++) {
       if (bs[i] == buffer) return i;
     }
-    return -1;
+    throw new IllegalStateException("Buffer " + buffer + " is unknown for " + prefix);
   }
 
   public boolean needsCleanup(ByteBuffer buffer) {
@@ -114,10 +145,80 @@ public final class BufferManager implements Closeable {
     return ratio > freeSpaceRatio;
   }
 
+  public int maxBufferSize() {
+    return buffers[0].capacity();
+  }
+
+  @Override
+  public String toString() {
+    return prefix;
+  }
+
+  private void unmapBuffers(System.Logger logger) {
+    var osName = System.getProperty("os.name");
+    if (osName.toLowerCase().contains("windows")) {
+      logger.log(INFO, "Unmapping buffers");
+      var queue = new ConcurrentLinkedQueue<WeakReference<?>>();
+      for (int i = 0; i < buffers.length; i++) {
+        queue.add(new WeakReference<>(buffers[i]));
+        BUFFERS.setRelease(buffers, i, null);
+        BUFFERS.setRelease(buffersInUse, i, null);
+      }
+      var refs = new LinkedList<SoftReference<byte[]>>();
+      for (long time = nanoTime(); nanoTime() - time < 10_000_000_000L; time += (int) signum(refs.hashCode())) {
+        queue.removeIf(e -> e.get() == null);
+        if (queue.isEmpty()) {
+          logger.log(INFO, "Buffers unmapped successfully");
+          return;
+        }
+        queue.removeIf(e -> {
+          var v = e.get();
+          if (v == null) {
+            return true;
+          } else {
+            refs.add(new SoftReference<>(new byte[16384]));
+            return false;
+          }
+        });
+        System.gc();
+      }
+      logger.log(ERROR, "Unable to unmap all buffers due a timeout");
+    } else {
+      for (int i = 0; i < buffers.length; i++) {
+        BUFFERS.setRelease(buffers, i, null);
+        BUFFERS.setRelease(buffersInUse, i, null);
+      }
+    }
+  }
+
   @Override
   public void close() throws IOException {
+    var logger = System.getLogger(getClass().getName());
+    var set = new BitSet();
+    for (int i = 0; i < buffers.length; i++) {
+      if (BUFFERS.getAcquire(buffersInUse, i) == null) {
+        set.set(i);
+      }
+    }
+    if (!set.isEmpty()) {
+      logger.log(ERROR, () -> prefix + " invalid state " + set);
+    }
     try (channel) {
-      state.clear();
+      unmapBuffers(logger);
+    } catch (Throwable e) {
+      logger.log(ERROR, () -> "Unable to close " + file, e);
+    } finally {
+      try {
+        if (Files.exists(file)) {
+          if (!Files.deleteIfExists(file)) {
+            logger.log(WARNING, () -> "Unable to delete " + file);
+          }
+        }
+      } catch (AccessDeniedException e) {
+        logger.log(ERROR, e::getMessage);
+      } catch (Throwable e) {
+        logger.log(ERROR, () -> "Unexpected error on deleting file " + file, e);
+      }
     }
   }
 }

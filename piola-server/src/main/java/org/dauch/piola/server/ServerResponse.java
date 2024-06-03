@@ -27,7 +27,9 @@ import org.dauch.piola.api.response.Response;
 
 import java.net.InetSocketAddress;
 
-public interface ServerResponse extends Streamed {
+public interface ServerResponse {
+  long id();
+  int stream();
   InetSocketAddress address();
   Response response();
   SerializationContext context();

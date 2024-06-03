@@ -23,28 +23,26 @@ package org.dauch.piola.client;
  */
 
 import org.dauch.piola.api.response.Response;
+import org.dauch.piola.util.Addr;
 
 import java.net.InetSocketAddress;
-import java.util.IdentityHashMap;
+import java.util.LinkedList;
 import java.util.concurrent.*;
-import java.util.concurrent.atomic.AtomicIntegerFieldUpdater;
-import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
-import static java.lang.System.nanoTime;
-import static java.util.concurrent.Future.State.*;
-import static java.util.concurrent.atomic.AtomicIntegerFieldUpdater.newUpdater;
-import static java.util.concurrent.locks.LockSupport.parkNanos;
+final class SimpleResponses<R extends Response> implements Responses<R>, AutoCloseable {
 
-public final class SimpleResponses<R extends Response> implements Responses<R> {
-
-  public final long id;
+  final long id;
   private final LinkedTransferQueue<ClientResponse<? extends R>> queue;
-  final IdentityHashMap<InetSocketAddress, Throwable> errors = new IdentityHashMap<>();
+  private final Runnable close;
+  private final ConcurrentSkipListMap<Addr, Throwable> errors = new ConcurrentSkipListMap<>();
 
   @SuppressWarnings("unchecked")
-  public SimpleResponses(long id, LinkedTransferQueue<ClientResponse<? extends Response>> queue) {
+  SimpleResponses(long id, LinkedTransferQueue<ClientResponse<? extends Response>> queue, Runnable close) {
     this.id = id;
     this.queue = (LinkedTransferQueue<ClientResponse<? extends R>>) (LinkedTransferQueue<?>) queue;
+    this.close = close;
   }
 
   @Override
@@ -75,37 +73,21 @@ public final class SimpleResponses<R extends Response> implements Responses<R> {
   }
 
   @Override
-  public <A> Future<A> poll(A initial, BiFunction<A, ClientResponse<? extends R>, A> op) {
-    var f = new F<A>(this);
-    Thread.startVirtualThread(() -> {
-      var a = initial;
-      try {
-        while (f.cancelled == 0) {
-          var e = queue.poll();
-          if (e == null) {
-            parkNanos(1_000_000L);
-            continue;
-          }
-          var newA = op.apply(a, e);
-          if (newA == null) {
-            f.result = a;
-            f.finish();
-            break;
-          } else {
-            a = newA;
-          }
-        }
-      } catch (Throwable e) {
-        f.error = e;
-        f.finish();
-      }
-    });
-    return f;
+  public ClientResponse<? extends R> peek() {
+    return queue.peek();
   }
 
   @Override
-  public int size() {
-    return queue.size();
+  public boolean poll(Consumer<ClientResponse<? extends R>> consumer) {
+    return queue.removeIf(e -> {
+      consumer.accept(e);
+      return true;
+    });
+  }
+
+  @Override
+  public boolean fetch(Predicate<ClientResponse<? extends R>> consumer) {
+    return queue.removeIf(consumer);
   }
 
   @Override
@@ -115,119 +97,20 @@ public final class SimpleResponses<R extends Response> implements Responses<R> {
 
   @Override
   public Throwable error(InetSocketAddress address) {
-    synchronized (errors) {
-      return errors.get(address);
-    }
+    return errors.get(new Addr(address));
   }
 
   @Override
   public boolean hasErrors() {
-    synchronized (errors) {
-      return !errors.isEmpty();
-    }
+    return !errors.isEmpty();
   }
 
-  private static final class F<T> implements Future<T> {
+  void putError(InetSocketAddress address, Throwable error) {
+    errors.put(new Addr(address), error);
+  }
 
-    @SuppressWarnings("rawtypes")
-    private static final AtomicIntegerFieldUpdater<F> U = newUpdater(F.class, "cancelled");
-
-    @SuppressWarnings("unused")
-    private volatile SimpleResponses<?> responses;
-    private volatile int cancelled;
-    private volatile boolean finished;
-    private volatile T result;
-    private volatile Throwable error;
-
-    private final Object lock = new Object();
-
-    public F(SimpleResponses<?> responses) {
-      this.responses = responses;
-    }
-
-    @Override
-    public boolean cancel(boolean mayInterruptIfRunning) {
-      if (U.compareAndSet(this, 0, 1)) {
-        finish();
-        return true;
-      } else {
-        return false;
-      }
-    }
-
-    @Override
-    public boolean isCancelled() {
-      return cancelled > 0;
-    }
-
-    @Override
-    public boolean isDone() {
-      return finished;
-    }
-
-    @Override
-    public T get() throws InterruptedException, ExecutionException {
-      synchronized (lock) {
-        while (!finished) {
-          lock.wait(0L);
-        }
-      }
-      if (cancelled > 0)
-        throw new CancellationException();
-      if (error != null)
-        throw new ExecutionException(error);
-      return result;
-    }
-
-    @Override
-    public State state() {
-      return finished ? (cancelled > 0 ? CANCELLED : (error != null ? FAILED : SUCCESS)) : RUNNING;
-    }
-
-    @Override
-    public T resultNow() {
-      return switch (state()) {
-        case CANCELLED -> throw new IllegalStateException("Task was cancelled");
-        case RUNNING -> throw new IllegalStateException("Task is still running");
-        case FAILED -> throw new IllegalStateException("Task was failed", error);
-        case SUCCESS -> result;
-      };
-    }
-
-    @Override
-    public Throwable exceptionNow() {
-      return switch (state()) {
-        case CANCELLED -> throw new IllegalStateException("Task was cancelled");
-        case RUNNING -> throw new IllegalStateException("Task is still running");
-        case FAILED -> error;
-        case SUCCESS -> throw new IllegalStateException("Task was finished successfully");
-      };
-    }
-
-    @Override
-    public T get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
-      var timeoutMillis = unit.toMillis(timeout);
-      var millis = Math.max(1L, unit.toMillis(timeout));
-      synchronized (lock) {
-        for (long t = timeoutMillis, start = nanoTime(); !finished; start = nanoTime()) {
-          if (t < 0L) throw new TimeoutException();
-          lock.wait(millis);
-          t -= Math.max(1L, (nanoTime() - start) / 1_000_000L);
-        }
-      }
-      if (cancelled > 0)
-        throw new CancellationException();
-      if (error != null)
-        throw new ExecutionException(error);
-      return result;
-    }
-
-    private void finish() {
-      finished = true;
-      responses = null;
-      synchronized (lock) {
-        lock.notifyAll();
-      }
-    }
+  @Override
+  public void close() {
+    close.run();
   }
 }

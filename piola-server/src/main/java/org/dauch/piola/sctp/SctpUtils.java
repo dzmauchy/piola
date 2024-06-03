@@ -24,8 +24,6 @@ package org.dauch.piola.sctp;
 
 import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.SctpMultiChannel;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.api.request.SendDataRequest;
 
 import java.io.IOException;
 import java.net.*;
@@ -40,49 +38,22 @@ public interface SctpUtils {
     channel.setOption(SO_RCVBUF, conf.rcvBufSize(), null);
     channel.setOption(SO_SNDBUF, conf.sendBufSize(), null);
     channel.setOption(SCTP_NODELAY, conf.nagle(), null);
-    channel.setOption(SCTP_FRAGMENT_INTERLEAVE, 1, null);
+    channel.setOption(SCTP_FRAGMENT_INTERLEAVE, 0, null);
     channel.setOption(SO_LINGER, conf.linger(), null);
     channel.setOption(SCTP_INIT_MAXSTREAMS, InitMaxStreams.create(conf.maxStreams(), conf.maxStreams()), null);
     channel.configureBlocking(true);
   }
 
-  static int streamNumber(Request request) {
-    return switch (request) {
-      case SendDataRequest(_, int partition) -> partition + 1;
-      default -> 0;
-    };
-  }
-
-  static boolean isExitSequence(SctpMultiChannel ch, MessageInfo msg, ByteBuffer buf, long cmd) throws IOException {
-    if (msg.payloadProtocolID() != Integer.MIN_VALUE) {
-      return false;
-    }
-    if (msg.streamNumber() != 0) {
-      return false;
-    }
-    if (msg.bytes() != Long.BYTES) {
-      return false;
-    }
-    if (buf.getLong(0) != cmd) {
-      return false;
-    }
-    for (var addr : ch.getRemoteAddresses(msg.association())) {
-      if (addr instanceof InetSocketAddress a && isLoopback(a)) {
-        return true;
-      }
-    }
-    return false;
-  }
-  static InetSocketAddress sendExitSequence(SctpMultiChannel ch, long cmd) throws IOException {
+  static InetSocketAddress sendExitSequence(SctpMultiChannel ch) throws IOException {
     for (var addr : ch.getAllLocalAddresses()) {
       if (addr instanceof InetSocketAddress a && isLoopback(a)) {
-        var buf = ByteBuffer.allocate(Long.BYTES).putLong(0, cmd);
-        ch.send(buf, MessageInfo.createOutgoing(a, 0).payloadProtocolID(Integer.MIN_VALUE));
+        ch.send(ByteBuffer.allocate(1), MessageInfo.createOutgoing(a, 0).payloadProtocolID(Integer.MIN_VALUE));
         return a;
       }
     }
     throw new NoRouteToHostException("No loopback address found");
   }
+
   static boolean isLoopback(InetSocketAddress a) {
     if (a.getAddress() instanceof Inet4Address ipv4) {
       if (!ipv4.isLoopbackAddress()) {

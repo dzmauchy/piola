@@ -22,7 +22,6 @@ package org.dauch.piola.sctp;
  * #L%
  */
 
-import lombok.Getter;
 import org.dauch.piola.sctp.client.SctpClient;
 import org.dauch.piola.sctp.client.SctpClientConfig;
 import org.dauch.piola.sctp.server.SctpServer;
@@ -42,9 +41,21 @@ public abstract class SctpTestBase {
 
   protected final System.Logger log = System.getLogger(getClass().getName());
 
-  @Getter protected SctpServer server;
-  @Getter protected SctpClient client;
-  @Getter protected InetSocketAddress address;
+  protected SctpServer server;
+  protected SctpClient client;
+  protected InetSocketAddress address;
+
+  public SctpServer getServer() {
+    return server;
+  }
+
+  public SctpClient getClient() {
+    return client;
+  }
+
+  public InetSocketAddress getAddress() {
+    return address;
+  }
 
   @BeforeEach
   protected void initServer(@TempDir Path baseDir, @TempDir Path bufferDir) {
@@ -52,6 +63,7 @@ public abstract class SctpTestBase {
     props.setProperty("test.baseDir", baseDir.toString());
     props.setProperty("test.bufferDir", bufferDir.toString());
     props.setProperty("test.bufferCount", "4");
+    props.setProperty("test.maxMessageSize", "1000000");
     server = new SctpServer(SctpServerConfig.fromProperties("test", props));
     address = server.address("127.0.0.1");
   }
@@ -61,6 +73,7 @@ public abstract class SctpTestBase {
     var props = new Properties();
     props.setProperty("test.bufferDir", clientBufferDir.toString());
     props.setProperty("test.bufferCount", "4");
+    props.setProperty("test.maxMessageSize", "1000000");
     client = new SctpClient(SctpClientConfig.fromProperties("test", props));
   }
 

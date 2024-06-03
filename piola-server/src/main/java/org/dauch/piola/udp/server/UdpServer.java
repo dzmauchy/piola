@@ -22,8 +22,8 @@ package org.dauch.piola.udp.server;
  * #L%
  */
 
-import org.dauch.piola.api.RequestFactory;
-import org.dauch.piola.api.SerializationContext;
+import org.dauch.piola.api.*;
+import org.dauch.piola.api.response.Response;
 import org.dauch.piola.buffer.BufferManager;
 import org.dauch.piola.exception.DataCorruptionException;
 import org.dauch.piola.server.AbstractServer;
@@ -33,45 +33,75 @@ import org.dauch.piola.udp.fragment.*;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.*;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.DatagramChannel;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.stream.Stream;
 
 import static java.lang.System.Logger.Level.*;
+import static java.util.concurrent.TimeUnit.MILLISECONDS;
+import static java.util.concurrent.TimeUnit.MINUTES;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
-import static org.dauch.piola.udp.UdpUtils.validateCrc;
+import static org.dauch.piola.udp.UdpUtils.*;
 
 public final class UdpServer extends AbstractServer<UdpRq, UdpRs> {
 
-  private final int fragmentTimeout;
+  private static final int REQUEST_LEN_THRESHOLD = 4 + 4 + 4 + 1;
+
+  private final long assemblyTimeout;
   private final BufferManager fragmentBuffers;
   private final InetAddress address;
   private final NetworkInterface networkInterface;
   private final DatagramChannel channel;
-  private final FragmentCache inFragments = new FragmentCache();
-  private final FragmentCache outFragments = new FragmentCache();
+  private final FragmentCacheIn inFragments = new FragmentCacheIn();
+  private final OutputFragments outputFragments;
   private final Thread cleanThread;
+  private final ThreadPoolExecutor threadPool;
 
   public UdpServer(UdpServerConfig config) {
     super(config, UdpRq[]::new, UdpRs[]::new);
-    fragmentTimeout = config.fragmentTimeout();
+    assemblyTimeout = MILLISECONDS.toNanos(config.messageAssemblyTimeout());
     cleanThread = Thread.ofVirtual().name("fragmentsCleaner-" + config.id()).unstarted(this::clean);
+    threadPool = threadPool(config);
     try {
-      fragmentBuffers = $("fragmentBuffers", config.fragmentBuffers());
+      fragmentBuffers = $("fragmentBuffers", config.fragmentBuffers("server"));
       address = config.address().getAddress();
       networkInterface = config.multicastNetworkInterface();
       channel = $("channel", DatagramChannel.open(config.protocolFamily()));
+      outputFragments = new OutputFragments(channel, config, fragmentBuffers);
       UdpUtils.configure(channel, config);
       channel.bind(config.address());
       UdpUtils.configureAfter(channel, config);
-      var membershipKey = channel.join(config.multicastGroup(), networkInterface);
       startThreads();
-      $("membership", membershipKey::drop);
+      joinUdpGroup(config);
     } catch (Throwable e) {
-      throw initException(new IllegalStateException("Unable to start server " + config.id(), e));
+      throw constructorException(new IllegalStateException("Unable to start server " + config.id(), e));
+    }
+  }
+
+  private void joinUdpGroup(UdpServerConfig config) throws Exception {
+    if (networkInterface == null) {
+      for (var e = NetworkInterface.getNetworkInterfaces(); e.hasMoreElements(); ) {
+        var itf = e.nextElement();
+        if (itf.supportsMulticast()) {
+          var group = config.multicastGroup();
+          try {
+            var membershipKey = channel.join(group, itf);
+            $("membership-" + itf.getName(), membershipKey::drop);
+            logger.log(INFO, () -> "Joined multicast group on " + itf.getName());
+          } catch (Throwable x) {
+            logger.log(WARNING, () -> "Join " + group + " error on " + itf.getName() + ": " + x.getMessage());
+          }
+        }
+      }
+    } else {
+      if (networkInterface.supportsMulticast()) {
+        var membershipKey = channel.join(config.multicastGroup(), networkInterface);
+        $("membership", membershipKey::drop);
+      } else {
+        logger.log(ERROR, () -> "Multicast group not supported on " + networkInterface.getName());
+      }
     }
   }
 
@@ -92,6 +122,22 @@ public final class UdpServer extends AbstractServer<UdpRq, UdpRs> {
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
+  }
+
+  private ThreadPoolExecutor threadPool(UdpServerConfig config) {
+    return new ThreadPoolExecutor(
+      0, config.fragmentBufferCount(),
+      1L, MINUTES,
+      new SynchronousQueue<>(),
+      Thread.ofVirtual().name("server-fragments-" + id + "-", 0L).factory(),
+      (r, e) -> {
+        try {
+          e.getQueue().put(r);
+        } catch (InterruptedException _) {
+          logger.log(ERROR, "Interrupted while putting into the queue");
+        }
+      }
+    );
   }
 
   @Override
@@ -115,124 +161,124 @@ public final class UdpServer extends AbstractServer<UdpRq, UdpRs> {
 
   @Override
   protected void mainLoop() {
-    while (true) {
-      var buf = fragmentBuffers.get();
-      try {
-        var addr = (InetSocketAddress) channel.receive(buf);
-        if (UdpUtils.isExitSequence(channel, addr, buf.flip(), exitCmd)) {
-          logger.log(INFO, () -> "Exit sequence received from " + addr);
-          break;
-        }
-        Thread.startVirtualThread(() -> {
-          try {
-            receivedSize.add(buf.remaining());
-            validateCrc(buf);
-            switch (buf.get()) {
-              case 1 -> processRequestFragment(buf, addr);
-              case 2 -> processRequestAck(buf, addr);
-              case 3 -> processResponseAck(buf, addr);
-              default -> brokenRequests.increment();
-            }
-          } catch (DataCorruptionException e) {
-            logger.log(DEBUG, "Data error", e);
-            brokenRequests.increment();
-          } catch (BufferUnderflowException _) {
-            brokenRequests.increment();
-          } catch (Throwable e) {
-            logger.log(ERROR, "Unexpected error", e);
-          } finally {
-            fragmentBuffers.release(buf);
+    try (threadPool) {
+      while (running) {
+        var buf = fragmentBuffers.get();
+        try {
+          var addr = (InetSocketAddress) channel.receive(buf);
+          if (buf.flip().limit() < REQUEST_LEN_THRESHOLD) {
+            continue;
           }
-        });
-      } catch (ClosedChannelException _) {
-        logger.log(INFO, "Closed");
-        break;
-      } catch (Throwable e) {
-        logger.log(ERROR, "Unexpected error", e);
+          validateCrc(buf.getInt(), buf);
+          var serverId = buf.getInt();
+          if (serverId >= 0 && serverId != id) {
+            continue;
+          }
+          threadPool.execute(() -> {
+            try {
+              var protocolId = buf.getInt();
+              switch (buf.get()) {
+                case RT_FRAGMENT -> processRequestFragment(protocolId, buf, addr);
+                case RT_ACK -> processResponseAck(buf, addr);
+                default -> brokenRequests.increment();
+              }
+            } catch (CancellationException e) {
+              logger.log(WARNING, () -> "Fragment cancellation, address = " + addr + ": " + e.getMessage());
+            } catch (DataCorruptionException e) {
+              logger.log(DEBUG, "Data error", e);
+            } catch (Throwable e) {
+              logger.log(ERROR, "Unexpected error", e);
+            } finally {
+              fragmentBuffers.release(buf);
+            }
+          });
+        } catch (ClosedChannelException _) {
+          fragmentBuffers.release(buf);
+          logger.log(INFO, "Closed channel");
+          break;
+        } catch (Throwable e) {
+          fragmentBuffers.release(buf);
+          logger.log(ERROR, "Unexpected error while reading to the fragment buffer", e);
+        }
       }
+    } catch (Throwable e) {
+      logger.log(ERROR, "Unexpected error while closing the thread pool", e);
     }
+    logger.log(INFO, "MainLoop finished");
   }
 
-  private void processRequestFragment(ByteBuffer buf, InetSocketAddress addr) throws IOException {
+  private void processRequestFragment(int protocolId, ByteBuffer buf, InetSocketAddress addr) throws Exception {
+    var msgKey = new MsgKey(addr, buf);
     var fragment = new Fragment(buf);
-    var cache = inFragments.fragmentsBy(addr);
-    var v = cache.computeIfAbsent(fragment.key(), _ -> new MsgValue(fragment));
-    v.validate(fragment);
-    v.apply(fragment, buf, buffers::get);
-    synchronized (v) {
-      v.prepareAck(fragment, buf);
-      channel.send(buf, addr);
-    }
-  }
-
-  private void processRequestAck(ByteBuffer buf, InetSocketAddress addr) throws Exception {
-    var fragment = new Fragment(buf);
-    var cache = inFragments.fragmentsBy(addr);
-    var msg = cache.get(fragment.key());
-    if (msg == null) {
-      return;
-    }
-    msg.validate(fragment);
-    msg.applyRemote(fragment);
-    if (msg.tryComplete()) {
-      var ctx = new SerializationContext();
-      var req = RequestFactory.request(msg.slice(), ctx);
-      if (req.hasPayload()) {
-        requests.put(msg.withRawBuffer(b -> new UdpRq(fragment.key(), addr, req, b, ctx)));
-      } else {
-        msg.release(buffers);
-        requests.put(new UdpRq(fragment.key(), addr, req, null, ctx));
+    var v = inFragments.computeByKey(msgKey, fragment);
+    v.apply(fragment, buf, readBuffers);
+    switch (v.tryComplete()) {
+      case null -> {}
+      case COMPLETED_WITH_ERROR -> v.release(readBuffers);
+      case COMPLETED -> {
+        try {
+          var req = v.withBuffer(b -> {
+            var ctx = new SerializationContext();
+            var rq = RequestFactory.request(b, ctx);
+            if (rq.hasPayload()) {
+              return new UdpRq(msgKey, protocolId, fragment.len(), addr, rq, b, ctx);
+            } else {
+              readBuffers.release(b);
+              return new UdpRq(msgKey, protocolId, fragment.len(), addr, rq, null, ctx);
+            }
+          });
+          requests.put(req);
+        } catch (Throwable e) {
+          v.release(readBuffers);
+          throw e;
+        } finally {
+          v.clear();
+        }
       }
-      synchronized (msg) {
-        msg.prepareAck(fragment, buf);
-        channel.send(buf, addr);
-      }
-    } else if (msg.isCompleted()) {
-      synchronized (msg) {
-        msg.prepareAck(fragment, buf);
-        channel.send(buf, addr);
-      }
+      default -> throw new IllegalStateException("Invalid completion state");
     }
+    outputFragments.sendAck(id, protocolId, msgKey, fragment, buf, addr);
   }
 
   private void processResponseAck(ByteBuffer buf, InetSocketAddress addr) {
-
+    outputFragments.handleAck(new MsgKey(addr, buf), new Fragment(buf));
   }
 
   @Override
-  protected void doSendShutdownSequence() throws Exception {
-    UdpUtils.sendExitSequence(channel, exitCmd);
+  protected void reject(UdpRq udpRq) {
+    inFragments.reject(udpRq.key(), readBuffers);
   }
 
   @Override
-  protected void requestLoop() {
-    while (runningRequests) {
-      drainRequests(this::process);
+  protected void writeResponse(UdpRq rq, ByteBuffer payload, Response rs) throws Exception {
+    var buffer = writeBuffers.get();
+    try {
+      ResponseFactory.write(rs, buffer);
+      rq.context().write(buffer);
+      if (payload != null) {
+        buffer.put(payload);
+      }
+      outputFragments.send(rq.fragmentLength(), id, rq.protocolId(), rq.stream(), rq.id(), buffer.flip(), rq.address());
+    } finally {
+      writeBuffers.release(buffer);
     }
-  }
-
-  private void process(UdpRq rq) {
-
-  }
-
-  @Override
-  protected void responseLoop() {
-    while (runningResponses) {
-      drainResponses(this::writeResponse);
-    }
-  }
-
-  private void writeResponse(UdpRs rs) {
-
   }
 
   private void clean() {
     var thread = Thread.currentThread();
-    var timeout = TimeUnit.SECONDS.toNanos(fragmentTimeout);
     while (!thread.isInterrupted()) {
-      incompleteRequests.add(inFragments.clean(buffers, timeout));
-      incompleteResponses.add(outFragments.clean(buffers, timeout));
-      parkNanos(timeout >> 1);
+      inFragments.clean(readBuffers, assemblyTimeout);
+      parkNanos(assemblyTimeout >> 1);
+    }
+  }
+
+  @Override
+  protected InetSocketAddress sendShutdownSequence() {
+    try {
+      return UdpUtils.sendExitSequence(channel);
+    } catch (Throwable e) {
+      logger.log(ERROR, "Unable to send shutdown sequence", e);
+      return null;
     }
   }
 

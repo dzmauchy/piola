@@ -1,4 +1,4 @@
-package org.dauch.piola.benchmark.key;
+package org.dauch.piola.api.response;
 
 /*-
  * #%L
@@ -22,14 +22,13 @@ package org.dauch.piola.benchmark.key;
  * #L%
  */
 
-import org.junit.jupiter.api.Tag;
-import org.junit.jupiter.api.Test;
+import org.dauch.piola.annotation.Id;
+import org.dauch.piola.annotation.Serde;
 
-@Tag("benchmark")
-class IdBenchmarkTest {
+import java.time.Instant;
 
-  @Test
-  void benchmark() throws Exception {
-    IdBenchmark.main();
-  }
+@Serde
+public record DataReceivedResponse(
+  @Id(1) Instant timestamp
+) implements DataSendResponse {
 }

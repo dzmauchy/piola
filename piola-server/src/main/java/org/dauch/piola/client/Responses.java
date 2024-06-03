@@ -25,16 +25,17 @@ package org.dauch.piola.client;
 import org.dauch.piola.api.response.Response;
 
 import java.net.InetSocketAddress;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
-import java.util.function.BiFunction;
+import java.util.function.Consumer;
+import java.util.function.Predicate;
 
 public interface Responses<R extends Response> {
   ClientResponse<? extends R> poll(long time, TimeUnit timeUnit);
   ClientResponse<? extends R> take();
   ClientResponse<? extends R> poll();
-  <A> Future<A> poll(A initial, BiFunction<A, ClientResponse<? extends R>, A> op);
-  int size();
+  ClientResponse<? extends R> peek();
+  boolean fetch(Predicate<ClientResponse<? extends R>> consumer);
+  boolean poll(Consumer<ClientResponse<? extends R>> consumer);
   boolean isEmpty();
   Throwable error(InetSocketAddress address);
   boolean hasErrors();
