@@ -29,7 +29,6 @@ import org.dauch.piola.attributes.SimpleAttrs;
 import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.validation.TopicValidation;
 
-import java.lang.foreign.Arena;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentSkipListMap;
@@ -57,10 +56,12 @@ public final class ServerHandler implements AutoCloseable {
           d.create();
         }
         var attrs = d.readFileAttrs();
-        if (attrs == null)
+        if (attrs == null) {
           throw new IllegalStateException("Unable to read attributes");
-        if (request.attrs() instanceof SimpleAttrs a)
-          attrs.update(a);
+        }
+        if (request.attrs() instanceof SimpleAttrs a && attrs instanceof FileAttrs fa) {
+          fa.update(a);
+        }
         consumer.accept(new TopicInfoResponse(request.topic(), attrs));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to create topic in " + d, e);
@@ -78,9 +79,11 @@ public final class ServerHandler implements AutoCloseable {
         }
         if (d.exists()) {
           var fileAttrs = d.readFileAttrs();
-          if (fileAttrs == null)
-            throw new IllegalStateException("Unable to read attributes");
-          var attrs = fileAttrs.toSimpleAttrs();
+          if (!(fileAttrs instanceof FileAttrs fa)) {
+            consumer.accept(new TopicNotFoundResponse());
+            return;
+          }
+          var attrs = fa.toSimpleAttrs();
           if (!d.delete()) {
             throw new IllegalStateException("Unable to delete the topic directory");
           }
@@ -90,9 +93,8 @@ public final class ServerHandler implements AutoCloseable {
         }
         var old = topics.remove(request.topic());
         if (old != null) {
-          try (old) {
-            logger.log(INFO, () -> "Closing " + old);
-          }
+          logger.log(INFO, () -> "Closing " + old);
+          old.close();
         }
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to delete the topic " + request.topic(), e);
@@ -139,9 +141,8 @@ public final class ServerHandler implements AutoCloseable {
           }
         }
         var attrsFile = dir.resolve("attributes.data");
-        try (var arena = Arena.ofConfined()) {
-          var attrs = new FileAttrs(attrsFile, arena, true).toSimpleAttrs();
-          consumer.accept(new TopicInfoResponse(topic, attrs));
+        try (var fa = new FileAttrs(attrsFile, true)) {
+          consumer.accept(new TopicInfoResponse(topic, fa.toSimpleAttrs()));
         }
       }
     }
@@ -150,7 +151,6 @@ public final class ServerHandler implements AutoCloseable {
 
   public void sendData(DataSendRequest request, ServerRequest sr, Consumer<? super Response> consumer) {
     var buf = sr.buffer();
-    var stream = sr.stream();
   }
 
   private void withWriteLock(String topic, Consumer<TopicData> task) {
@@ -176,8 +176,9 @@ public final class ServerHandler implements AutoCloseable {
     topics.entrySet().removeIf(e -> {
       var topic = e.getKey();
       var data = e.getValue();
-      try (data) {
+      try {
         logger.log(INFO, () -> "Closing topic data " + topic);
+        data.close();
       } catch (Throwable x) {
         closeException.addSuppressed(x);
       }

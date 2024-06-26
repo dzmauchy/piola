@@ -25,10 +25,9 @@ package org.dauch.piola.attributes;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-import java.lang.foreign.Arena;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HexFormat;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -40,8 +39,7 @@ class AttributesTest {
     var simpleAttrs = new SimpleAttrs();
     simpleAttrs.putInt("abc", 1);
     simpleAttrs.putLong("cde", 2L);
-    try (var arena = Arena.ofShared()) {
-      var attrs = new FileAttrs(attrsFile, arena, false);
+    try (var attrs = new FileAttrs(attrsFile, false)) {
       attrs.update(simpleAttrs);
       var actual = attrs.toSimpleAttrs();
       assertEquals(simpleAttrs, actual);
@@ -54,8 +52,7 @@ class AttributesTest {
     var simpleAttrs = new SimpleAttrs();
     simpleAttrs.putInt("abc", 1);
     simpleAttrs.putLong("cde", 2L);
-    try (var arena = Arena.ofShared()) {
-      var attrs = new FileAttrs(attrsFile, arena, false);
+    try (var attrs = new FileAttrs(attrsFile, false)) {
       attrs.update(simpleAttrs);
       var expected = ByteBuffer.allocate(100);
       var actual = ByteBuffer.allocate(100);

@@ -25,8 +25,7 @@ package org.dauch.piola.buffer;
 import java.io.*;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.lang.ref.SoftReference;
-import java.lang.ref.WeakReference;
+import java.lang.ref.*;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
@@ -42,6 +41,7 @@ import static java.nio.file.StandardOpenOption.*;
 
 public final class BufferManager implements Closeable {
 
+  static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("buffer-cleaner").factory());
   private static final VarHandle BUFFERS = MethodHandles.arrayElementVarHandle(ByteBuffer[].class);
 
   private final String prefix;

@@ -22,45 +22,38 @@ package org.dauch.piola.server;
  * #L%
  */
 
-import org.dauch.piola.attributes.FileAttrs;
+import org.dauch.piola.attributes.*;
 import org.dauch.piola.util.MoreFiles;
 
 import java.io.IOException;
-import java.lang.foreign.Arena;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-final class TopicData implements AutoCloseable {
+import static java.util.Objects.requireNonNullElseGet;
+
+final class TopicData {
 
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private final Path directory;
-  private Arena arena;
   private FileAttrs attrs;
 
   TopicData(Path directory) {
     this.directory = directory;
   }
 
-  FileAttrs readFileAttrs() {
-    if (attrs != null) {
-      return attrs;
+  Attrs readFileAttrs() {
+    if (Files.isDirectory(directory)) {
+      return requireNonNullElseGet(attrs, () -> attrs = new FileAttrs(directory.resolve("attributes.data"), false));
     } else {
-      if (arena == null) {
-        arena = Arena.ofShared();
-      }
-      return attrs = new FileAttrs(directory.resolve("attributes.data"), arena, false);
+      return EmptyAttrs.EMPTY_ATTRS;
     }
   }
 
   boolean delete() throws IOException {
     if (MoreFiles.deleteRecursively(directory)) {
-      if (arena instanceof Arena a) {
-        try (a) {
-          attrs = null;
-        }
-        arena = null;
-      }
+      attrs.close();
+      attrs = null;
       return true;
     } else {
       return false;
@@ -93,10 +86,9 @@ final class TopicData implements AutoCloseable {
     }
   }
 
-  @Override
   public void close() {
-    if (arena != null) {
-      arena.close();
+    if (attrs != null) {
+      attrs.close();
     }
   }
 

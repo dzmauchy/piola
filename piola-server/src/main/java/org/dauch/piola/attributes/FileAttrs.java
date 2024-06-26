@@ -38,17 +38,17 @@ import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.file.StandardOpenOption.*;
 
-public final class FileAttrs extends Attrs {
+public final class FileAttrs extends Attrs implements AutoCloseable {
 
   private static final ValueLayout.OfLong LONG = JAVA_LONG.withOrder(ByteOrder.BIG_ENDIAN);
 
   private final Path path;
-  private final Arena arena;
+  private Arena arena;
   private MemorySegment segment;
 
-  public FileAttrs(Path path, Arena arena, boolean readOnly) {
+  public FileAttrs(Path path, boolean readOnly) {
     this.path = path;
-    this.arena = arena;
+    this.arena = Arena.ofShared();
     try {
       var opts = readOnly ? EnumSet.of(READ) : EnumSet.of(READ, WRITE, CREATE);
       try (var ch = FileChannel.open(path, opts)) {
@@ -78,7 +78,8 @@ public final class FileAttrs extends Attrs {
     var ks = attrs.keys;
     var vs = attrs.values;
     if (size() == 0) {
-      segment.unload();
+      arena.close();
+      arena = Arena.ofShared();
       try (var ch = FileChannel.open(path, EnumSet.of(READ, WRITE, CREATE))) {
         segment = ch.map(READ_WRITE, 0L, (long) attrs.size() << 4, arena);
         for (int i = 0, l = attrs.keys.length; i < l; i++) {
@@ -94,6 +95,8 @@ public final class FileAttrs extends Attrs {
       for (var k : attrs.keys) {
         if (binarySearch(k, size) < 0) toAdd++;
       }
+      arena.close();
+      arena = Arena.ofShared();
       try (var ch = FileChannel.open(path, EnumSet.of(READ, WRITE, CREATE))) {
         segment = ch.map(READ_WRITE, 0L, ch.size() + ((long) toAdd << 4), arena);
       } catch (IOException e) {
@@ -156,5 +159,10 @@ public final class FileAttrs extends Attrs {
       vs[i] = segment.getAtIndex(LONG, i * 2L + 1L);
     }
     return new SimpleAttrs(ks, vs);
+  }
+
+  @Override
+  public void close() {
+    arena.close();
   }
 }
