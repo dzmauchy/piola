@@ -25,12 +25,14 @@ package org.dauch.piola.buffer;
 import java.io.*;
 import java.lang.invoke.MethodHandles;
 import java.lang.invoke.VarHandle;
-import java.lang.ref.*;
+import java.lang.ref.SoftReference;
+import java.lang.ref.WeakReference;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.*;
 import java.util.*;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.function.Consumer;
 
 import static java.lang.Math.signum;
 import static java.lang.System.Logger.Level.*;
@@ -41,7 +43,6 @@ import static java.nio.file.StandardOpenOption.*;
 
 public final class BufferManager implements Closeable {
 
-  static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("buffer-cleaner").factory());
   private static final VarHandle BUFFERS = MethodHandles.arrayElementVarHandle(ByteBuffer[].class);
 
   private final String prefix;
@@ -154,21 +155,15 @@ public final class BufferManager implements Closeable {
     return prefix;
   }
 
-  private void unmapBuffers(System.Logger logger) {
+  public static void unmapBuffers(Consumer<Consumer<Object>> consumer) {
     var osName = System.getProperty("os.name");
     if (osName.toLowerCase().contains("windows")) {
-      logger.log(INFO, "Unmapping buffers");
       var queue = new ConcurrentLinkedQueue<WeakReference<?>>();
-      for (int i = 0; i < buffers.length; i++) {
-        queue.add(new WeakReference<>(buffers[i]));
-        BUFFERS.setRelease(buffers, i, null);
-        BUFFERS.setRelease(buffersInUse, i, null);
-      }
+      consumer.accept(b -> queue.offer(new WeakReference<>(b)));
       var refs = new LinkedList<SoftReference<byte[]>>();
       for (long time = nanoTime(); nanoTime() - time < 10_000_000_000L; time += (int) signum(refs.hashCode())) {
         queue.removeIf(e -> e.get() == null);
         if (queue.isEmpty()) {
-          logger.log(INFO, "Buffers unmapped successfully");
           return;
         }
         queue.removeIf(e -> {
@@ -182,12 +177,8 @@ public final class BufferManager implements Closeable {
         });
         System.gc();
       }
-      logger.log(ERROR, "Unable to unmap all buffers due a timeout");
     } else {
-      for (int i = 0; i < buffers.length; i++) {
-        BUFFERS.setRelease(buffers, i, null);
-        BUFFERS.setRelease(buffersInUse, i, null);
-      }
+      consumer.accept(_ -> {});
     }
   }
 
@@ -204,7 +195,14 @@ public final class BufferManager implements Closeable {
       logger.log(ERROR, () -> prefix + " invalid state " + set);
     }
     try (channel) {
-      unmapBuffers(logger);
+      unmapBuffers(c -> {
+        for (int i = 0; i < buffers.length; i++) {
+          var b = buffers[i];
+          c.accept(b);
+          BUFFERS.setRelease(buffers, i, null);
+          BUFFERS.setRelease(buffersInUse, i, null);
+        }
+      });
     } catch (Throwable e) {
       logger.log(ERROR, () -> "Unable to close " + file, e);
     } finally {
