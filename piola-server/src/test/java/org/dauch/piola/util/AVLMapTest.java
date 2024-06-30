@@ -118,7 +118,7 @@ class AVLMapTest {
           channel.read(nodeBuffer.slice(), address);
           // check node fields
           var actualKey = nodeBuffer.getLong(KEY);
-          var actualHeight = nodeBuffer.getInt(HEIGHT);
+          var actualHeight = nodeBuffer.getLong(HEIGHT);
           assert actualKey == node.key : "expectedKey " + node.key + ", actualKey=" + actualKey + ", stack = " + stack;
           assert actualHeight == node.height : "expectedHeight " + node.height + ", actualHeight = " + actualHeight + ", stack = " + stack;
           // check values

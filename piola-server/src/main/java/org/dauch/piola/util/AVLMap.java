@@ -33,7 +33,6 @@ import java.nio.file.Path;
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.function.LongConsumer;
 
-import static java.lang.foreign.ValueLayout.JAVA_INT;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.file.StandardOpenOption.*;
@@ -60,8 +59,7 @@ public final class AVLMap implements AutoCloseable {
   static final int LEFT = NEXT + Long.BYTES;
   static final int RIGHT = LEFT + Long.BYTES;
   static final int HEIGHT = RIGHT + Long.BYTES;
-  static final int RESERVED = HEIGHT + Integer.BYTES;
-  static final int NODE_SIZE = RESERVED + Integer.BYTES;
+  static final int NODE_SIZE = HEIGHT + Long.BYTES;
 
   // file channel
   final FileChannel channel;
@@ -138,16 +136,16 @@ public final class AVLMap implements AutoCloseable {
     }
   }
 
-  private int height(VirtualNode node) {
+  private long height(VirtualNode node) {
     return node == null ? 0 : node.getHeight();
   }
 
   private void updateHeight(VirtualNode node) {
-    node.setHeight(1 + Math.max(height(node.getLeft()), height(node.getRight())));
+    node.setHeight(1L + Math.max(height(node.getLeft()), height(node.getRight())));
   }
 
   private int balanceFactor(VirtualNode node) {
-    return node == null ? 0 : height(node.getLeft()) - height(node.getRight());
+    return node == null ? 0 : (int) (height(node.getLeft()) - height(node.getRight()));
   }
 
   private VirtualNode balance(VirtualNode node) {
@@ -198,9 +196,8 @@ public final class AVLMap implements AutoCloseable {
     segment.set(JAVA_LONG, base + NEXT, -1L);
     segment.set(JAVA_LONG, base + LEFT, -1L);
     segment.set(JAVA_LONG, base + RIGHT, -1L);
-    segment.set(JAVA_INT, base + HEIGHT, 1);
-    segment.set(JAVA_INT, base + RESERVED, 0);
-    return new VirtualNode(last, segment, base);
+    segment.set(JAVA_LONG, base + HEIGHT, 1L);
+    return new VirtualNode(last, segment, base, segmentSize, this);
   }
 
   private SegmentEntry segment(long offset) {
@@ -209,7 +206,7 @@ public final class AVLMap implements AutoCloseable {
       try {
         var memorySegment = channel.map(READ_WRITE, offset, segmentSize, Arena.ofAuto());
         var old = segments.put(offset, memorySegment);
-        if (old != null) {
+        if (old != null) { // this shouldn't happen but if it happens the segment should be flushed on disk
           old.force();
         }
         clean(memorySegment);
@@ -246,7 +243,12 @@ public final class AVLMap implements AutoCloseable {
   }
 
   private VirtualNode node(long node) {
-    return node < 0L ? null : new VirtualNode(node);
+    return node < 0L ? null : newNode(node);
+  }
+
+  private VirtualNode newNode(long node) {
+    var entry = segment(node);
+    return new VirtualNode(node, entry.segment, (int) (node - entry.offset), segmentSize, this);
   }
 
   /**
@@ -301,34 +303,17 @@ public final class AVLMap implements AutoCloseable {
     return segmentSize;
   }
 
-  private boolean couldUseTheSameSegment(long addr, long offset, int dataSize) {
+  private static boolean couldUseTheSameSegment(long addr, long offset, int dataSize, int segmentSize) {
     return addr >= offset && addr <= offset + segmentSize - dataSize;
   }
 
-  private final class VirtualNode {
-
-    private final long node;
-    private final MemorySegment segment;
-    private final int base;
-
-    private VirtualNode(long node) {
-      this.node = node;
-      var entry = segment(node);
-      this.segment = entry.segment;
-      this.base = (int) (node - entry.offset);
-    }
-
-    private VirtualNode(long node, MemorySegment segment, int base) {
-      this.node = node;
-      this.segment = segment;
-      this.base = base;
-    }
+  private record VirtualNode(long node, MemorySegment segment, int base, int segmentSize, AVLMap map) {
 
     private void add(long value) {
       var pValue = segment.get(JAVA_LONG, base + VALUE);
       var pNext = segment.get(JAVA_LONG, base + NEXT);
-      var last = header.get(JAVA_LONG, H_LAST);
-      header.set(JAVA_LONG, H_LAST, last + 16);
+      var last = map.header.get(JAVA_LONG, H_LAST);
+      map.header.set(JAVA_LONG, H_LAST, last + 16);
       var lastSegmentEntry = valueSegmentOf(last);
       var lastSegment = lastSegmentEntry.segment;
       var lastSegmentOffset = last - lastSegmentEntry.offset;
@@ -343,30 +328,31 @@ public final class AVLMap implements AutoCloseable {
     }
 
     private VirtualNode getLeft() {
-      var left = segment.get(JAVA_LONG, base + LEFT);
-      return left < 0L ? null : nodeOf(left);
+      return nodeOf(segment.get(JAVA_LONG, base + LEFT));
     }
 
     private VirtualNode getRight() {
-      var right = segment.get(JAVA_LONG, base + RIGHT);
-      return right < 0L ? null : nodeOf(right);
+      return nodeOf(segment.get(JAVA_LONG, base + RIGHT));
     }
 
     private VirtualNode nodeOf(long node) {
+      if (node < 0L) {
+        return null;
+      }
       var offset = this.node - base;
-      if (couldUseTheSameSegment(node, offset, NODE_SIZE)) {
-        return new VirtualNode(node, segment, (int) (node - offset));
+      if (couldUseTheSameSegment(node, offset, NODE_SIZE, segmentSize)) {
+        return new VirtualNode(node, segment, (int) (node - offset), segmentSize, map);
       } else {
-        return new VirtualNode(node);
+        return map.newNode(node);
       }
     }
 
     private SegmentEntry valueSegmentOf(long last) {
       var offset = node - base;
-      if (couldUseTheSameSegment(last, offset, 16)) {
+      if (couldUseTheSameSegment(last, offset, 16, segmentSize)) {
         return new SegmentEntry(offset, segment);
       } else {
-        return segment(last);
+        return map.segment(last);
       }
     }
 
@@ -378,23 +364,23 @@ public final class AVLMap implements AutoCloseable {
       segment.set(JAVA_LONG, base + RIGHT, node == null ? -1L : node.node);
     }
 
-    private int getHeight() {
-      return segment.get(JAVA_INT, base + HEIGHT);
+    private long getHeight() {
+      return segment.get(JAVA_LONG, base + HEIGHT);
     }
 
-    private void setHeight(int height) {
-      segment.set(JAVA_INT, base + HEIGHT, height);
+    private void setHeight(long height) {
+      segment.set(JAVA_LONG, base + HEIGHT, height);
     }
 
     private void forEachValue(LongConsumer consumer) {
       consumer.accept(segment.get(JAVA_LONG, base + VALUE));
       for (var n = segment.get(JAVA_LONG, base + NEXT); n >= 0L; ) {
-        if (couldUseTheSameSegment(n, node - base, 16)) {
+        if (couldUseTheSameSegment(n, node - base, 16, segmentSize)) {
           var o = n - (node - base);
           consumer.accept(segment.get(JAVA_LONG, o));
           n = segment.get(JAVA_LONG, o + 8);
         } else {
-          var entry = segment(n);
+          var entry = map.segment(n);
           var s = entry.segment;
           var o = n - entry.offset;
           consumer.accept(s.get(JAVA_LONG, o));
