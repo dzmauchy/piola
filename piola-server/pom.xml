@@ -31,6 +31,17 @@
           </annotationProcessorPaths>
         </configuration>
       </plugin>
+
+      <plugin>
+        <artifactId>maven-jar-plugin</artifactId>
+        <executions>
+          <execution>
+            <goals>
+              <goal>test-jar</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 
@@ -81,10 +92,6 @@
 
     <profile>
       <id>debug</id>
-
-      <properties>
-        <byte.buddy.version>1.14.17</byte.buddy.version>
-      </properties>
 
       <dependencies>
         <dependency>

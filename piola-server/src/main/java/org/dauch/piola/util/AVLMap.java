@@ -24,8 +24,7 @@ package org.dauch.piola.util;
 
 import org.dauch.piola.exception.DataCorruptionException;
 
-import java.io.IOException;
-import java.io.UncheckedIOException;
+import java.io.*;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
@@ -62,7 +61,7 @@ public final class AVLMap implements AutoCloseable {
   static final int NODE_SIZE = HEIGHT + Long.BYTES;
 
   // file channel
-  final FileChannel channel;
+  private final FileChannel channel;
 
   // header management objects
   private final Arena headerArena = Arena.ofShared();
@@ -103,12 +102,15 @@ public final class AVLMap implements AutoCloseable {
   private VirtualNode get(VirtualNode node, long key) {
     if (node == null) {
       return null;
-    } else if (key < node.getKey()) {
-      return get(node.getLeft(), key);
-    } else if (key > node.getKey()) {
-      return get(node.getRight(), key);
     } else {
-      return node;
+      var nodeKey = node.getKey();
+      if (key < nodeKey) {
+        return get(node.getLeft(), key);
+      } else if (key > nodeKey) {
+        return get(node.getRight(), key);
+      } else {
+        return node;
+      }
     }
   }
 
@@ -124,9 +126,10 @@ public final class AVLMap implements AutoCloseable {
     if (node == null) {
       return write(key, value);
     } else {
-      if (key < node.getKey()) {
+      var nodeKey = node.getKey();
+      if (key < nodeKey) {
         node.setLeft(put(node.getLeft(), key, value));
-      } else if (key > node.getKey()) {
+      } else if (key > nodeKey) {
         node.setRight(put(node.getRight(), key, value));
       } else {
         node.add(value);
@@ -186,8 +189,7 @@ public final class AVLMap implements AutoCloseable {
   }
 
   private VirtualNode write(long key, long value) {
-    var last = header.get(JAVA_LONG, H_LAST);
-    header.set(JAVA_LONG, H_LAST, last + NODE_SIZE);
+    var last = getAndAdd(header, H_LAST, NODE_SIZE);
     var entry = segment(last);
     var base = (int) (last - entry.offset);
     var segment = entry.segment;
@@ -251,21 +253,17 @@ public final class AVLMap implements AutoCloseable {
     return new VirtualNode(node, entry.segment, (int) (node - entry.offset), segmentSize, this);
   }
 
-  /**
-   * It will be used in tests to flush changes to the file
-   */
-  void flush() {
-    header.force();
-    segments.forEach((_, v) -> v.force());
+  private long root() {
+    return header.get(JAVA_LONG, H_ROOT);
   }
 
-  long root() {
-    return header.get(JAVA_LONG, H_ROOT);
+  private static long getAndAdd(MemorySegment segment, long offset, long value) {
+    return (long) JAVA_LONG.varHandle().getAndAdd(segment, offset, value);
   }
 
   @Override
   public void close() {
-    try (channel; headerArena) {
+    try (channel; headerArena; var _ = (Closeable) header::force) {
       var exception = new IllegalArgumentException();
       unmapBuffers(c -> segments.entrySet().removeIf(e -> {
         var segment = e.getValue();
@@ -277,7 +275,6 @@ public final class AVLMap implements AutoCloseable {
         c.accept(segment);
         return true;
       }));
-      header.force();
       if (exception.getSuppressed().length > 0) {
         throw exception;
       }
@@ -312,13 +309,12 @@ public final class AVLMap implements AutoCloseable {
     private void add(long value) {
       var pValue = segment.get(JAVA_LONG, base + VALUE);
       var pNext = segment.get(JAVA_LONG, base + NEXT);
-      var last = map.header.get(JAVA_LONG, H_LAST);
-      map.header.set(JAVA_LONG, H_LAST, last + 16);
+      var last = getAndAdd(map.header, H_LAST, 16L);
       var lastSegmentEntry = valueSegmentOf(last);
       var lastSegment = lastSegmentEntry.segment;
-      var lastSegmentOffset = last - lastSegmentEntry.offset;
-      lastSegment.set(JAVA_LONG, lastSegmentOffset, pValue);
-      lastSegment.set(JAVA_LONG, lastSegmentOffset + 8, pNext);
+      var o = last - lastSegmentEntry.offset;
+      lastSegment.set(JAVA_LONG, o, pValue);
+      lastSegment.set(JAVA_LONG, o + 8, pNext);
       segment.set(JAVA_LONG, base + VALUE, value);
       segment.set(JAVA_LONG, base + NEXT, last);
     }

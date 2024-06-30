@@ -22,8 +22,9 @@ package org.dauch.piola.util;
  * #L%
  */
 
-import org.eclipse.collections.api.factory.primitive.LongSets;
-import org.eclipse.collections.api.set.primitive.ImmutableLongSet;
+import org.dauch.piola.util.AVLMemoryMap.Node;
+import org.eclipse.collections.api.factory.primitive.LongLists;
+import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,13 +32,16 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
+import java.lang.foreign.Arena;
+import java.lang.foreign.MemorySegment;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.*;
 
+import static java.lang.foreign.ValueLayout.JAVA_LONG;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
+import static java.nio.file.StandardOpenOption.READ;
 import static org.dauch.piola.util.AVLMap.*;
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -101,54 +105,10 @@ class AVLMapTest {
         expectedMap.put(keys[i], values[i]);
         actualMap.put(keys[i], values[i]);
       }
-      actualMap.flush();
-      final class NodeComparator {
-
-        private final ByteBuffer nodeBuffer = ByteBuffer.allocateDirect(NODE_SIZE).order(ByteOrder.nativeOrder());
-        private final ByteBuffer valueBuffer = ByteBuffer.allocateDirect(16).order(ByteOrder.nativeOrder());
-        private final FileChannel channel = actualMap.channel;
-
-        private void compare(AVLMemoryMap.Node node, long address, ImmutableLongSet stack) throws Exception {
-          // check null node
-          if (node == null) {
-            assert address < 0 : "Address is not negative: " + address + ", stack = " + stack;
-            return;
-          }
-          // read node
-          channel.read(nodeBuffer.slice(), address);
-          // check node fields
-          var actualKey = nodeBuffer.getLong(KEY);
-          var actualHeight = nodeBuffer.getLong(HEIGHT);
-          assert actualKey == node.key : "expectedKey " + node.key + ", actualKey=" + actualKey + ", stack = " + stack;
-          assert actualHeight == node.height : "expectedHeight " + node.height + ", actualHeight = " + actualHeight + ", stack = " + stack;
-          // check values
-          var expectedValuesBuilder = LongStream.builder();
-          var actualValuesBuilder = LongStream.builder();
-          for (var e = node.value; e != null; e = e.prev()) {
-            expectedValuesBuilder.add(e.value());
-          }
-          actualValuesBuilder.add(nodeBuffer.getLong(VALUE));
-          for (var a = nodeBuffer.getLong(NEXT); a >= 0L; ) {
-            channel.read(valueBuffer.slice(), a);
-            actualValuesBuilder.add(valueBuffer.getLong(0));
-            a = valueBuffer.getLong(8);
-          }
-          assertArrayEquals(
-            expectedValuesBuilder.build().toArray(),
-            actualValuesBuilder.build().toArray(),
-            () -> "Values mismatch, stack = " + stack
-          );
-          // get left and right
-          var leftAddress = nodeBuffer.getLong(LEFT);
-          var rightAddress = nodeBuffer.getLong(RIGHT);
-          // check left
-          compare(node.left, leftAddress, stack.newWith(node.key));
-          // check right
-          compare(node.right, rightAddress, stack.newWith(node.key));
-        }
+      try (var ch = FileChannel.open(file, EnumSet.of(READ)); var arena = Arena.ofConfined()) {
+        var segment = ch.map(READ_ONLY, 0L, ch.size(), arena);
+        compare(segment, expectedMap.root, segment.get(JAVA_LONG, H_ROOT), LongLists.immutable.empty());
       }
-      var comparator = new NodeComparator();
-      comparator.compare(expectedMap.root, actualMap.root(), LongSets.immutable.empty());
     }
   }
 
@@ -167,5 +127,39 @@ class AVLMapTest {
         var values = LongStream.generate(() -> random.nextLong(1000L)).limit(n).toArray();
         return Arguments.of(keys, values);
       });
+  }
+
+  private void compare(MemorySegment segment, Node node, long address, ImmutableLongList stack) {
+    // check null node
+    if (node == null) {
+      assert address < 0 : "Address is not negative: " + address + ", stack = " + stack;
+      return;
+    }
+    // check node fields
+    var actualKey = segment.get(JAVA_LONG, address + KEY);
+    var actualHeight = segment.get(JAVA_LONG, address + HEIGHT);
+    assert actualKey == node.key : "expectedKey " + node.key + ", actualKey=" + actualKey + ", stack = " + stack;
+    assert actualHeight == node.height : "expectedHeight " + node.height + ", actualHeight = " + actualHeight + ", stack = " + stack;
+    // check values
+    var expectedValuesBuilder = LongStream.builder();
+    var actualValuesBuilder = LongStream.builder();
+    for (var e = node.value; e != null; e = e.prev()) {
+      expectedValuesBuilder.add(e.value());
+    }
+    actualValuesBuilder.add(segment.get(JAVA_LONG, address + VALUE));
+    for (var a = segment.get(JAVA_LONG, address + NEXT); a >= 0L; ) {
+      actualValuesBuilder.add(segment.get(JAVA_LONG, a));
+      a = segment.get(JAVA_LONG, a + 8);
+    }
+    assertArrayEquals(
+      expectedValuesBuilder.build().toArray(),
+      actualValuesBuilder.build().toArray(),
+      () -> "Values mismatch, stack = " + stack
+    );
+    // get left and right
+    // check left
+    compare(segment, node.left, segment.get(JAVA_LONG, address + LEFT), stack.newWith(node.key));
+    // check right
+    compare(segment, node.right, segment.get(JAVA_LONG, address + RIGHT), stack.newWith(node.key));
   }
 }
