@@ -191,16 +191,16 @@ public final class AVLMap implements AutoCloseable {
     var last = header.get(JAVA_LONG, H_LAST);
     header.set(JAVA_LONG, H_LAST, last + NODE_SIZE);
     var entry = segment(last);
-    var offset = (int) (last - entry.offset);
+    var base = (int) (last - entry.offset);
     var segment = entry.segment;
-    segment.set(JAVA_LONG, offset + KEY, key);
-    segment.set(JAVA_LONG, offset + VALUE, value);
-    segment.set(JAVA_LONG, offset + NEXT, -1L);
-    segment.set(JAVA_LONG, offset + LEFT, -1L);
-    segment.set(JAVA_LONG, offset + RIGHT, -1L);
-    segment.set(JAVA_INT, offset + HEIGHT, 1);
-    segment.set(JAVA_INT, offset + RESERVED, 0);
-    return new VirtualNode(last, segment, offset);
+    segment.set(JAVA_LONG, base + KEY, key);
+    segment.set(JAVA_LONG, base + VALUE, value);
+    segment.set(JAVA_LONG, base + NEXT, -1L);
+    segment.set(JAVA_LONG, base + LEFT, -1L);
+    segment.set(JAVA_LONG, base + RIGHT, -1L);
+    segment.set(JAVA_INT, base + HEIGHT, 1);
+    segment.set(JAVA_INT, base + RESERVED, 0);
+    return new VirtualNode(last, segment, base);
   }
 
   private SegmentEntry segment(long offset) {
@@ -295,7 +295,14 @@ public final class AVLMap implements AutoCloseable {
     if (segmentSize < 1024) {
       throw new IllegalArgumentException("segmentSize must be at least 1024");
     }
+    if (segmentSize % Long.BYTES != 0) {
+      throw new IllegalArgumentException("segmentSize should be aligned to 64 bit");
+    }
     return segmentSize;
+  }
+
+  private boolean couldUseTheSameSegment(long addr, long offset, int dataSize) {
+    return addr >= offset && addr <= offset + segmentSize - dataSize;
   }
 
   private final class VirtualNode {
@@ -324,7 +331,7 @@ public final class AVLMap implements AutoCloseable {
       header.set(JAVA_LONG, H_LAST, last + 16);
       var lastSegmentEntry = valueSegmentOf(last);
       var lastSegment = lastSegmentEntry.segment;
-      var lastSegmentOffset = (int) (last - lastSegmentEntry.offset);
+      var lastSegmentOffset = last - lastSegmentEntry.offset;
       lastSegment.set(JAVA_LONG, lastSegmentOffset, pValue);
       lastSegment.set(JAVA_LONG, lastSegmentOffset + 8, pNext);
       segment.set(JAVA_LONG, base + VALUE, value);
@@ -347,7 +354,7 @@ public final class AVLMap implements AutoCloseable {
 
     private VirtualNode nodeOf(long node) {
       var offset = this.node - base;
-      if (node >= offset && node + NODE_SIZE <= offset + segmentSize) {
+      if (couldUseTheSameSegment(node, offset, NODE_SIZE)) {
         return new VirtualNode(node, segment, (int) (node - offset));
       } else {
         return new VirtualNode(node);
@@ -356,7 +363,7 @@ public final class AVLMap implements AutoCloseable {
 
     private SegmentEntry valueSegmentOf(long last) {
       var offset = node - base;
-      if (last >= offset && last + 16 <= offset + segmentSize) {
+      if (couldUseTheSameSegment(last, offset, 16)) {
         return new SegmentEntry(offset, segment);
       } else {
         return segment(last);
@@ -382,11 +389,17 @@ public final class AVLMap implements AutoCloseable {
     private void forEachValue(LongConsumer consumer) {
       consumer.accept(segment.get(JAVA_LONG, base + VALUE));
       for (var n = segment.get(JAVA_LONG, base + NEXT); n >= 0L; ) {
-        var entry = segment(n);
-        var s = entry.segment;
-        var o = (int) (n - entry.offset);
-        consumer.accept(s.get(JAVA_LONG, o));
-        n = s.get(JAVA_LONG, o + 8);
+        if (couldUseTheSameSegment(n, node - base, 16)) {
+          var o = n - (node - base);
+          consumer.accept(segment.get(JAVA_LONG, o));
+          n = segment.get(JAVA_LONG, o + 8);
+        } else {
+          var entry = segment(n);
+          var s = entry.segment;
+          var o = n - entry.offset;
+          consumer.accept(s.get(JAVA_LONG, o));
+          n = s.get(JAVA_LONG, o + 8);
+        }
       }
     }
   }
