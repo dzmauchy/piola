@@ -250,7 +250,7 @@
       <plugin>
         <artifactId>maven-wrapper-plugin</artifactId>
         <configuration>
-          <mavenVersion>3.9.6</mavenVersion>
+          <mavenVersion>3.9.8</mavenVersion>
         </configuration>
       </plugin>
     </plugins>
