@@ -57,7 +57,7 @@ public final class ByteBufferTestExecutionListener implements TestExecutionListe
     }
 
     new AgentBuilder.Default()
-      .type(named("org.dauch.piola.buffer.BufferManager"))
+      .type(named("org.dauch.piola.collections.buffer.BufferManager"))
       .transform((b, _, _, _, _) -> b
         .method(named("get"))
         .intercept(Advice.to(BufferManagerGetAdvice.class))

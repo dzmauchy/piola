@@ -22,7 +22,7 @@ package org.dauch.piola.udp.fragment;
  * #L%
  */
 
-import org.dauch.piola.buffer.BufferManager;
+import org.dauch.piola.collections.buffer.BufferManager;
 
 import java.util.concurrent.ConcurrentSkipListMap;
 import java.util.concurrent.atomic.AtomicInteger;

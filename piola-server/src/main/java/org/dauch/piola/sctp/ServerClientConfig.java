@@ -22,7 +22,7 @@ package org.dauch.piola.sctp;
  * #L%
  */
 
-import org.dauch.piola.buffer.BufferConfig;
+import org.dauch.piola.collections.buffer.BufferConfig;
 
 public interface ServerClientConfig extends BufferConfig {
   int rcvBufSize();

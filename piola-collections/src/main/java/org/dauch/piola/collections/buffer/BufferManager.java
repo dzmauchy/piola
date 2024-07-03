@@ -1,4 +1,4 @@
-package org.dauch.piola.buffer;
+package org.dauch.piola.collections.buffer;
 
 /*-
  * #%L

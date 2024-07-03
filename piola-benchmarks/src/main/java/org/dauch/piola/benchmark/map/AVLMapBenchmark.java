@@ -22,6 +22,8 @@ package org.dauch.piola.benchmark.map;
  * #L%
  */
 
+import org.dauch.piola.collections.map.AVLMap;
+import org.dauch.piola.collections.map.AVLMemoryMap;
 import org.dauch.piola.util.*;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.*;

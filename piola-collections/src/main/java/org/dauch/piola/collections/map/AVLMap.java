@@ -1,4 +1,4 @@
-package org.dauch.piola.util;
+package org.dauch.piola.collections.map;
 
 /*-
  * #%L
@@ -22,7 +22,7 @@ package org.dauch.piola.util;
  * #L%
  */
 
-import org.dauch.piola.exception.DataCorruptionException;
+import org.dauch.piola.collections.buffer.BufferManager;
 
 import java.io.*;
 import java.lang.foreign.Arena;
@@ -40,7 +40,6 @@ import java.util.stream.Stream;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.file.StandardOpenOption.*;
-import static org.dauch.piola.buffer.BufferManager.unmapBuffers;
 
 /**
  * AVLMap implementation based on Java 22 memory segments mapped to a file.
@@ -380,12 +379,12 @@ public final class AVLMap implements AutoCloseable {
   public void close() {
     try (channel; headerArena; var _ = (Closeable) header::force) {
       var exception = new IllegalArgumentException();
-      unmapBuffers(c -> segments.entrySet().removeIf(e -> {
+      BufferManager.unmapBuffers(c -> segments.entrySet().removeIf(e -> {
         var segment = e.getValue();
         try {
           segment.force();
         } catch (Throwable x) {
-          exception.addSuppressed(new DataCorruptionException("Cannot close a segment at " + e.getKey(), x));
+          exception.addSuppressed(new IllegalStateException("Cannot close a segment at " + e.getKey(), x));
         }
         c.accept(segment);
         return true;

@@ -11,6 +11,14 @@
 
   <artifactId>piola-server</artifactId>
 
+  <dependencies>
+    <dependency>
+      <groupId>org.dauch</groupId>
+      <artifactId>piola-collections</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+  </dependencies>
+
   <build>
     <plugins>
       <plugin>
@@ -30,17 +38,6 @@
             </path>
           </annotationProcessorPaths>
         </configuration>
-      </plugin>
-
-      <plugin>
-        <artifactId>maven-jar-plugin</artifactId>
-        <executions>
-          <execution>
-            <goals>
-              <goal>test-jar</goal>
-            </goals>
-          </execution>
-        </executions>
       </plugin>
     </plugins>
   </build>

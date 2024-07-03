@@ -1,4 +1,4 @@
-package org.dauch.piola.util;
+package org.dauch.piola.collections.map;
 
 /*-
  * #%L

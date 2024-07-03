@@ -22,8 +22,8 @@ package org.dauch.piola.udp;
  * #L%
  */
 
-import org.dauch.piola.buffer.BufferConfig;
-import org.dauch.piola.buffer.BufferManager;
+import org.dauch.piola.collections.buffer.BufferConfig;
+import org.dauch.piola.collections.buffer.BufferManager;
 
 import java.util.concurrent.TimeUnit;
 

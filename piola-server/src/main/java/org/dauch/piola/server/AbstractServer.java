@@ -25,7 +25,7 @@ package org.dauch.piola.server;
 import org.dauch.piola.api.request.*;
 import org.dauch.piola.api.response.ErrorResponse;
 import org.dauch.piola.api.response.Response;
-import org.dauch.piola.buffer.BufferManager;
+import org.dauch.piola.collections.buffer.BufferManager;
 import org.dauch.piola.exception.ExceptionData;
 import org.dauch.piola.util.*;
 

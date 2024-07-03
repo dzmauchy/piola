@@ -22,7 +22,7 @@ package org.dauch.piola.server;
  * #L%
  */
 
-import org.dauch.piola.buffer.BufferConfig;
+import org.dauch.piola.collections.buffer.BufferConfig;
 
 import java.nio.file.Path;
 

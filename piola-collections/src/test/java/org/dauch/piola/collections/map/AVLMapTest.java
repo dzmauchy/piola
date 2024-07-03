@@ -1,4 +1,4 @@
-package org.dauch.piola.util;
+package org.dauch.piola.collections.map;
 
 /*-
  * #%L
@@ -22,7 +22,7 @@ package org.dauch.piola.util;
  * #L%
  */
 
-import org.dauch.piola.util.AVLMemoryMap.Node;
+import org.dauch.piola.collections.map.AVLMemoryMap.Node;
 import org.eclipse.collections.api.factory.primitive.LongLists;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 import org.eclipse.collections.impl.factory.primitive.LongSets;
@@ -44,7 +44,7 @@ import java.util.stream.*;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.file.StandardOpenOption.READ;
-import static org.dauch.piola.util.AVLMap.*;
+import static org.dauch.piola.collections.map.AVLMap.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class AVLMapTest {

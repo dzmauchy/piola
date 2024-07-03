@@ -26,7 +26,7 @@ import org.dauch.piola.api.ResponseFactory;
 import org.dauch.piola.api.SerializationContext;
 import org.dauch.piola.api.request.Request;
 import org.dauch.piola.api.response.*;
-import org.dauch.piola.buffer.BufferManager;
+import org.dauch.piola.collections.buffer.BufferManager;
 import org.dauch.piola.util.*;
 
 import java.lang.ref.Cleaner;

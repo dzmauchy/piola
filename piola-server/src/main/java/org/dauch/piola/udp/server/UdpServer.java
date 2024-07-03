@@ -24,7 +24,7 @@ package org.dauch.piola.udp.server;
 
 import org.dauch.piola.api.*;
 import org.dauch.piola.api.response.Response;
-import org.dauch.piola.buffer.BufferManager;
+import org.dauch.piola.collections.buffer.BufferManager;
 import org.dauch.piola.exception.DataCorruptionException;
 import org.dauch.piola.server.AbstractServer;
 import org.dauch.piola.udp.UdpUtils;

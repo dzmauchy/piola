@@ -22,7 +22,7 @@ package org.dauch.piola.client;
  * #L%
  */
 
-import org.dauch.piola.buffer.BufferConfig;
+import org.dauch.piola.collections.buffer.BufferConfig;
 
 public interface ClientConfig extends BufferConfig {
   String name();
