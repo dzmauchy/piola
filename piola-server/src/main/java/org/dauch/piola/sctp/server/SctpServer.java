@@ -29,7 +29,8 @@ import org.dauch.piola.api.response.Response;
 import org.dauch.piola.sctp.SctpUtils;
 import org.dauch.piola.server.AbstractServer;
 
-import java.io.*;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.net.*;
 import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
@@ -37,7 +38,10 @@ import java.nio.channels.ClosedChannelException;
 import java.util.stream.Stream;
 
 import static com.sun.nio.sctp.MessageInfo.createOutgoing;
-import static java.lang.System.Logger.Level.*;
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.INFO;
+import static org.dauch.piola.sctp.SctpUtils.checkIncomplete;
+import static org.dauch.piola.sctp.SctpUtils.closeAssociation;
 
 public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
 
@@ -117,13 +121,13 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
       try {
         while (true) {
           var m = channel.receive(buf, null, null);
-          checkIncomplete(msg, m);
+          checkIncomplete(msg, m, mi -> closeAssociation(channel, mi, logger));
           receivedSize.add(m.bytes());
           if (m.isComplete()) {
             break;
           } else if (!buf.hasRemaining()) {
-            closeAssociation(msg);
-            closeAssociation(m);
+            closeAssociation(channel, msg, logger);
+            closeAssociation(channel, m, logger);
             throw new BufferOverflowException();
           }
         }
@@ -139,22 +143,7 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
       readBuffers.release(buf);
       logger.log(ERROR, () -> "Unknown exception " + msg, e);
       brokenRequests.increment();
-      closeAssociation(msg);
-    }
-  }
-
-  private void checkIncomplete(MessageInfo msg, MessageInfo m) throws Exception {
-    try {
-      if (m.streamNumber() != msg.streamNumber())
-        throw new StreamCorruptedException("Stream number mismatch: " + m);
-      if (m.payloadProtocolID() != msg.payloadProtocolID())
-        throw new StreamCorruptedException("Payload protocol ID mismatch: " + m);
-      if (m.association().associationID() != msg.association().associationID())
-        throw new StreamCorruptedException("Association mismatch: " + m);
-    } catch (StreamCorruptedException e) {
-      closeAssociation(msg);
-      closeAssociation(m);
-      throw e;
+      closeAssociation(channel, msg, logger);
     }
   }
 
@@ -172,7 +161,7 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
 
   @Override
   protected void reject(SctpRq sctpRq) {
-    closeAssociation(sctpRq.meta());
+    closeAssociation(channel, sctpRq.meta(), logger);
   }
 
   @Override
@@ -190,16 +179,6 @@ public final class SctpServer extends AbstractServer<SctpRq, SctpRs> {
       sentMessages.increment();
     } finally {
       writeBuffers.release(buf);
-    }
-  }
-
-  private void closeAssociation(MessageInfo messageInfo) {
-    try {
-      channel.shutdown(messageInfo.association());
-    } catch (IllegalArgumentException _) {
-      logger.log(TRACE, () -> "Already closed " + messageInfo.association());
-    } catch (Throwable e) {
-      logger.log(ERROR, () -> "Unable to close the association " + messageInfo.association(), e);
     }
   }
 

@@ -26,10 +26,14 @@ import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.SctpMultiChannel;
 
 import java.io.IOException;
+import java.io.StreamCorruptedException;
 import java.net.*;
 import java.nio.ByteBuffer;
+import java.util.function.Consumer;
 
 import static com.sun.nio.sctp.SctpStandardSocketOptions.*;
+import static java.lang.System.Logger.Level.ERROR;
+import static java.lang.System.Logger.Level.TRACE;
 
 public interface SctpUtils {
 
@@ -64,6 +68,31 @@ public interface SctpUtils {
       return addr[1] != -1 || addr[2] != -1 || addr[3] != -1;
     } else {
       return a.getAddress().isLoopbackAddress();
+    }
+  }
+
+  static void checkIncomplete(MessageInfo msg, MessageInfo m, Consumer<MessageInfo> closer) throws Exception {
+    try {
+      if (m.streamNumber() != msg.streamNumber())
+        throw new StreamCorruptedException("Stream number mismatch: " + m);
+      if (m.payloadProtocolID() != msg.payloadProtocolID())
+        throw new StreamCorruptedException("Payload protocol ID mismatch: " + m);
+      if (m.association().associationID() != msg.association().associationID())
+        throw new StreamCorruptedException("Association mismatch: " + m);
+    } catch (StreamCorruptedException e) {
+      closer.accept(msg);
+      closer.accept(m);
+      throw e;
+    }
+  }
+
+  static void closeAssociation(SctpMultiChannel channel, MessageInfo messageInfo, System.Logger logger) {
+    try {
+      channel.shutdown(messageInfo.association());
+    } catch (IllegalArgumentException _) {
+      logger.log(TRACE, () -> "Already closed " + messageInfo.association());
+    } catch (Throwable e) {
+      logger.log(ERROR, () -> "Unable to close the association " + messageInfo.association(), e);
     }
   }
 }

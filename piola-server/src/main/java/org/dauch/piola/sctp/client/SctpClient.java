@@ -29,14 +29,16 @@ import org.dauch.piola.api.request.Request;
 import org.dauch.piola.client.AbstractClient;
 import org.dauch.piola.sctp.SctpUtils;
 
-import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.BufferOverflowException;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 
 import static com.sun.nio.sctp.MessageInfo.createOutgoing;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
+import static org.dauch.piola.sctp.SctpUtils.checkIncomplete;
+import static org.dauch.piola.sctp.SctpUtils.closeAssociation;
 
 public final class SctpClient extends AbstractClient {
 
@@ -81,8 +83,23 @@ public final class SctpClient extends AbstractClient {
       receivedSize.add(msg.bytes());
       if (!msg.isComplete()) {
         incompleteResponses.increment();
-        channel.shutdown(msg.association());
-        return;
+        try {
+          while (true) {
+            var m = channel.receive(buf, null, null);
+            checkIncomplete(msg, m, mi -> closeAssociation(channel, mi, logger));
+            receivedSize.add(m.bytes());
+            if (m.isComplete()) {
+              break;
+            } else if (!buf.hasRemaining()) {
+              closeAssociation(channel, msg, logger);
+              closeAssociation(channel, m, logger);
+              throw new BufferOverflowException();
+            }
+          }
+        } catch (Throwable e) {
+          buffers.release(buf);
+          throw e;
+        }
       }
       var serverId = buf.flip().getInt();
       var id = buf.getLong();
