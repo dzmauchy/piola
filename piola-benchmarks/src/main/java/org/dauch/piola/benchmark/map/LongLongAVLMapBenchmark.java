@@ -22,8 +22,8 @@ package org.dauch.piola.benchmark.map;
  * #L%
  */
 
-import org.dauch.piola.collections.map.AVLMap;
-import org.dauch.piola.collections.map.AVLMemoryMap;
+import org.dauch.piola.collections.map.LongLongAVLDiskMap;
+import org.dauch.piola.collections.map.LongLongAVLMemoryMap;
 import org.dauch.piola.util.*;
 import org.openjdk.jmh.annotations.Threads;
 import org.openjdk.jmh.annotations.*;
@@ -46,13 +46,13 @@ import static java.nio.file.Files.createTempDirectory;
 @Measurement(iterations = 10, batchSize = 1)
 @Warmup(iterations = 10, batchSize = 1)
 @Threads(1)
-public class AVLMapBenchmark {
+public class LongLongAVLMapBenchmark {
 
   private static final int COUNT = 1 << 20;
 
   @Benchmark
   @OperationsPerInvocation(COUNT)
-  public AVLMap disk(AVLDiskState state) {
+  public LongLongAVLDiskMap disk(AVLDiskState state) {
     var map = state.map;
     var ks = state.keys;
     var vs = state.values;
@@ -64,8 +64,8 @@ public class AVLMapBenchmark {
 
   @Benchmark
   @OperationsPerInvocation(COUNT)
-  public AVLMemoryMap memory(AVLMemoryState state) {
-    var map = new AVLMemoryMap();
+  public LongLongAVLMemoryMap memory(AVLMemoryState state) {
+    var map = new LongLongAVLMemoryMap();
     var ks = state.keys;
     var vs = state.values;
     for (int i = 0, l = state.keys.length; i < l; i++) {
@@ -78,13 +78,13 @@ public class AVLMapBenchmark {
   public static class AVLDiskState extends AVLMemoryState {
 
     private final Path tempDir;
-    private final AVLMap map;
+    private final LongLongAVLDiskMap map;
 
     public AVLDiskState() {
       try {
         // we use user.home to avoid using /tmp directory which is mounted usually as a memory device
         tempDir = createTempDirectory(Path.of(getProperty("user.home")), "avl");
-        map = new AVLMap(tempDir.resolve("data.data"), 1 << 20, 1024);
+        map = new LongLongAVLDiskMap(tempDir.resolve("data.data"), 1 << 20, 1024);
       } catch (IOException e) {
         throw new UncheckedIOException(e);
       }

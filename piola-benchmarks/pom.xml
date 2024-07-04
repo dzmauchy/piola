@@ -14,7 +14,7 @@
   <dependencies>
     <dependency>
       <groupId>${project.groupId}</groupId>
-      <artifactId>piola-server</artifactId>
+      <artifactId>piola-cluster</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>

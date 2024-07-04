@@ -44,7 +44,7 @@
   <modules>
     <module>piola-processors</module>
     <module>piola-collections</module>
-    <module>piola-server</module>
+    <module>piola-cluster</module>
     <module>piola-benchmarks</module>
   </modules>
 

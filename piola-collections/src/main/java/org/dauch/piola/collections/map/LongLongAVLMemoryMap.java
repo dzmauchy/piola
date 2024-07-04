@@ -24,7 +24,7 @@ package org.dauch.piola.collections.map;
 
 import java.util.function.LongConsumer;
 
-public final class AVLMemoryMap {
+public final class LongLongAVLMemoryMap {
 
   Node root;
 
@@ -84,21 +84,21 @@ public final class AVLMemoryMap {
   }
 
   private Node rotateRight(Node n) {
-    var rotated = n.left;
-    n.left = rotated.right;
-    rotated.right = n;
+    var r = n.left;
+    n.left = r.right;
+    r.right = n;
     updateHeight(n);
-    updateHeight(rotated);
-    return rotated;
+    updateHeight(r);
+    return r;
   }
 
   private Node rotateLeft(Node n) {
-    var rotated = n.right;
-    n.right = rotated.left;
-    rotated.left = n;
+    var r = n.right;
+    n.right = r.left;
+    r.left = n;
     updateHeight(n);
-    updateHeight(rotated);
-    return rotated;
+    updateHeight(r);
+    return r;
   }
 
   private void updateHeight(Node node) {

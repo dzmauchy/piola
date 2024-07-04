@@ -22,11 +22,11 @@ package org.dauch.piola.collections.map;
  * #L%
  */
 
-import org.dauch.piola.collections.buffer.BufferManager;
-
 import java.io.*;
 import java.lang.foreign.Arena;
 import java.lang.foreign.MemorySegment;
+import java.lang.ref.Cleaner;
+import java.lang.ref.Cleaner.Cleanable;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.util.EnumSet;
@@ -38,6 +38,7 @@ import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
+import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.channels.FileChannel.MapMode.READ_WRITE;
 import static java.nio.file.StandardOpenOption.*;
 
@@ -46,10 +47,13 @@ import static java.nio.file.StandardOpenOption.*;
  * The implementation is not thread safe, the AVL tree restructuring or/and value insertions
  * could be partially visible for a reader thread. If one wants to use the map
  * from multiple threads use a {@link java.util.concurrent.locks.ReadWriteLock}
- * to synchronize the {@link AVLMap#get(long, LongConsumer)} method with a {@code readLock}
- * and the {@link AVLMap#put(long, long)} method with a {@code writeLock}.
+ * to synchronize the {@link LongLongAVLDiskMap#get(long, LongConsumer)} method with a {@code readLock}
+ * and the {@link LongLongAVLDiskMap#put(long, long)} method with a {@code writeLock}.
  */
-public final class AVLMap implements AutoCloseable {
+public final class LongLongAVLDiskMap implements AutoCloseable {
+
+  private static final Cleaner CLEANER = Cleaner.create(Thread.ofVirtual().name("avlmap").factory());
+  private static final ConcurrentSkipListMap<Long, Cleanable> CLEAN_ACTIONS = new ConcurrentSkipListMap<>();
 
   // common constants
   static final int FILE_HEADER_SIZE = 128;
@@ -79,7 +83,8 @@ public final class AVLMap implements AutoCloseable {
   // segments cache
   private final int segmentSize;
   private final int maxSegments;
-  private final ConcurrentSkipListMap<Long, MemorySegment> segments = new ConcurrentSkipListMap<>(Long::compareTo);
+  private final ConcurrentSkipListMap<Long, MemorySegment> rw = new ConcurrentSkipListMap<>(Long::compare);
+  private final ConcurrentSkipListMap<Long, MemorySegment> ro = new ConcurrentSkipListMap<>(Long::compare);
 
   /**
    * Constructs an AVL disk based map.
@@ -88,7 +93,7 @@ public final class AVLMap implements AutoCloseable {
    * @param segmentSize Segment size (memory mapped segments of such size will be used as
    * @param maxSegments Maximum number of segments (segment evictions from the cache start from smaller offsets)
    */
-  public AVLMap(Path file, int segmentSize, int maxSegments) {
+  public LongLongAVLDiskMap(Path file, int segmentSize, int maxSegments) {
     this.segmentSize = checkSegmentSize(segmentSize);
     this.maxSegments = checkMaxSegments(maxSegments);
     try {
@@ -111,7 +116,7 @@ public final class AVLMap implements AutoCloseable {
    * @param consumer Value consumer
    */
   public void get(long key, LongConsumer consumer) {
-    var node = get(node(root()), key);
+    var node = get(node(root(), true), key);
     if (node != null) {
       node.forEachValue(consumer);
     }
@@ -124,7 +129,7 @@ public final class AVLMap implements AutoCloseable {
    * @return Stream of values
    */
   public LongStream get(long key) {
-    var node = get(node(root()), key);
+    var node = get(node(root(), true), key);
     return node == null ? LongStream.empty() : node.values();
   }
 
@@ -135,7 +140,7 @@ public final class AVLMap implements AutoCloseable {
    * @return True if the key is present
    */
   public boolean contains(long key) {
-    return get(node(root()), key) != null;
+    return get(node(root(), true), key) != null;
   }
 
   /**
@@ -146,7 +151,7 @@ public final class AVLMap implements AutoCloseable {
    * @return Check status
    */
   public boolean contains(long key, long value) {
-    var node = get(node(root()), key);
+    var node = get(node(root(), true), key);
     return node != null && node.contains(value);
   }
 
@@ -154,13 +159,13 @@ public final class AVLMap implements AutoCloseable {
    * Returns true if the specified key and value exist. The values should be
    * inserted using the same comparator.
    *
-   * @param key Key
-   * @param value Value
+   * @param key        Key
+   * @param value      Value
    * @param comparator Comparator
    * @return Check status
    */
   public boolean contains(long key, long value, LongBinaryOperator comparator) {
-    var node = get(node(root()), key);
+    var node = get(node(root(), true), key);
     return node != null && node.contains(value, comparator);
   }
 
@@ -171,7 +176,7 @@ public final class AVLMap implements AutoCloseable {
    * @return Values count
    */
   public long countValues(long key) {
-    var node = get(node(root()), key);
+    var node = get(node(root(), true), key);
     return node == null ? 0L : node.countValues();
   }
 
@@ -191,6 +196,20 @@ public final class AVLMap implements AutoCloseable {
   }
 
   /**
+   * Sets (by overwrite if exists) a value for the given key
+   *
+   * @param key   Key
+   * @param value Value
+   */
+  public void set(long key, long value) {
+    var root = root();
+    var node = set(node(root, false), key, value);
+    if (root != node.node) {
+      header.set(JAVA_LONG, H_ROOT, node.node);
+    }
+  }
+
+  /**
    * Inserts an entry to the map. The value will be inserted as a first value.
    *
    * @param key   Entry key
@@ -198,7 +217,7 @@ public final class AVLMap implements AutoCloseable {
    */
   public void put(long key, long value) {
     var root = root();
-    var node = put(node(root), key, value);
+    var node = put(node(root, false), key, value);
     if (root != node.node) {
       header.set(JAVA_LONG, H_ROOT, node.node);
     }
@@ -215,7 +234,7 @@ public final class AVLMap implements AutoCloseable {
    */
   public void put(long key, long value, LongBinaryOperator comparator) {
     var root = root();
-    var node = put(node(root), key, value, comparator);
+    var node = put(node(root, false), key, value, comparator);
     if (root != node.node) {
       header.set(JAVA_LONG, H_ROOT, node.node);
     }
@@ -249,6 +268,23 @@ public final class AVLMap implements AutoCloseable {
         node.setRight(put(node.getRight(), key, value, comparator));
       } else {
         node.add(value, comparator);
+        return node;
+      }
+      return balance(node);
+    }
+  }
+
+  private VirtualNode set(VirtualNode node, long key, long value) {
+    if (node == null) {
+      return write(key, value);
+    } else {
+      var nodeKey = node.getKey();
+      if (key < nodeKey) {
+        node.setLeft(set(node.getLeft(), key, value));
+      } else if (key > nodeKey) {
+        node.setRight(set(node.getRight(), key, value));
+      } else {
+        node.set(value);
         return node;
       }
       return balance(node);
@@ -307,7 +343,7 @@ public final class AVLMap implements AutoCloseable {
 
   private VirtualNode write(long key, long value) {
     var last = getAndAdd(header, H_LAST, NODE_SIZE);
-    var entry = segment(last, NODE_SIZE);
+    var entry = segment(last, NODE_SIZE, false);
     var base = (int) (last - entry.offset);
     var segment = entry.segment;
     segment.set(JAVA_LONG, base + KEY, key);
@@ -316,42 +352,61 @@ public final class AVLMap implements AutoCloseable {
     segment.set(JAVA_LONG, base + LEFT, -1L);
     segment.set(JAVA_LONG, base + RIGHT, -1L);
     segment.set(JAVA_LONG, base + HEIGHT, 1L);
-    return new VirtualNode(segment, last, base, segmentSize, this);
+    return new VirtualNode(segment, last, base, false, this);
   }
 
-  private SegmentEntry segment(long offset, int size) {
-    var entry = segments.ceilingEntry(offset - segmentSize + size);
-    if (entry == null || entry.getKey() > offset) {
-      try {
-        var segment = channel.map(READ_WRITE, offset, segmentSize, Arena.ofAuto());
-        segments.put(offset, segment);
-        while (segments.size() > maxSegments) {
-          for (var it = segments.values().iterator(); it.hasNext(); ) {
-            var s = it.next();
-            if (s != segment && segments.size() > maxSegments) {
-              it.remove();
-              if (segments.size() <= maxSegments) {
-                return new SegmentEntry(offset, segment);
-              }
+  private SegmentEntry segment(long offset, int size, boolean ro) {
+    var entry = rw.ceilingEntry(offset - segmentSize + size);
+    if (entry != null && entry.getKey() <= offset) {
+      return new SegmentEntry(entry.getKey(), entry.getValue());
+    }
+    if (ro) {
+      entry = this.ro.ceilingEntry(offset - segmentSize + size);
+      if (entry != null && entry.getKey() <= offset) {
+        return new SegmentEntry(entry.getKey(), entry.getValue());
+      }
+    }
+    var arena = Arena.ofShared();
+    try {
+      var segment = ro
+        ? channel.map(READ_ONLY, offset, Math.min(channel.size() - offset, segmentSize), arena)
+        : channel.map(READ_WRITE, offset, segmentSize, arena);
+      var segmentAddress = segment.address();
+      CLEAN_ACTIONS.put(segmentAddress, CLEANER.register(segment, () -> {
+        CLEAN_ACTIONS.remove(segmentAddress);
+        arena.close();
+      }));
+      var segments = ro ? this.ro : this.rw;
+      segments.put(offset, segment);
+      while (segments.size() > maxSegments) {
+        for (var it = segments.values().iterator(); it.hasNext(); ) {
+          var s = it.next();
+          if (s != segment && segments.size() > maxSegments) {
+            it.remove();
+            s.force();
+            if (segments.size() <= maxSegments) {
+              return new SegmentEntry(offset, segment);
             }
           }
         }
-        return new SegmentEntry(offset, segment);
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
       }
-    } else {
-      return new SegmentEntry(entry.getKey(), entry.getValue());
+      return new SegmentEntry(offset, segment);
+    } catch (IOException e) {
+      arena.close();
+      throw new UncheckedIOException(e);
+    } catch (Throwable e) {
+      arena.close();
+      throw e;
     }
   }
 
-  private VirtualNode node(long node) {
-    return node < 0L ? null : newNode(node);
+  private VirtualNode node(long node, boolean ro) {
+    return node < 0L ? null : newNode(node, ro);
   }
 
-  private VirtualNode newNode(long node) {
-    var entry = segment(node, NODE_SIZE);
-    return new VirtualNode(entry.segment, node, (int) (node - entry.offset), segmentSize, this);
+  private VirtualNode newNode(long node, boolean ro) {
+    var entry = segment(node, NODE_SIZE, ro);
+    return new VirtualNode(entry.segment, node, (int) (node - entry.offset), ro, this);
   }
 
   private long root() {
@@ -379,16 +434,23 @@ public final class AVLMap implements AutoCloseable {
   public void close() {
     try (channel; headerArena; var _ = (Closeable) header::force) {
       var exception = new IllegalArgumentException();
-      BufferManager.unmapBuffers(c -> segments.entrySet().removeIf(e -> {
-        var segment = e.getValue();
+      ro.clear();
+      rw.entrySet().removeIf(e -> {
         try {
-          segment.force();
+          e.getValue().force();
         } catch (Throwable x) {
-          exception.addSuppressed(new IllegalStateException("Cannot close a segment at " + e.getKey(), x));
+          exception.addSuppressed(new IllegalStateException("Unable to force segment at " + e.getKey(), x));
         }
-        c.accept(segment);
         return true;
-      }));
+      });
+      CLEAN_ACTIONS.entrySet().removeIf(e -> {
+        try {
+          e.getValue().clean();
+        } catch (Throwable x) {
+          exception.addSuppressed(new IllegalStateException("Unable to close arena at " + e.getKey(), x));
+        }
+        return true;
+      });
       if (exception.getSuppressed().length > 0) {
         throw exception;
       }
@@ -418,7 +480,11 @@ public final class AVLMap implements AutoCloseable {
     return addr >= offset && addr <= offset + segmentSize - dataSize;
   }
 
-  private record VirtualNode(MemorySegment segment, long node, int base, int segmentSize, AVLMap map) {
+  private record VirtualNode(MemorySegment segment, long node, int base, boolean ro, LongLongAVLDiskMap map) {
+
+    private void set(long value) {
+      segment.set(JAVA_LONG, base + VALUE, value);
+    }
 
     private void add(long value) {
       var last = getAndAdd(map.header, H_LAST, 16L);
@@ -479,16 +545,16 @@ public final class AVLMap implements AutoCloseable {
         return null;
       }
       var offset = this.node - base;
-      return couldUseTheSameSegment(node, offset, NODE_SIZE, segmentSize)
-        ? new VirtualNode(segment, node, (int) (node - offset), segmentSize, map)
-        : map.newNode(node);
+      return couldUseTheSameSegment(node, offset, NODE_SIZE, map.segmentSize)
+        ? new VirtualNode(segment, node, (int) (node - offset), ro, map)
+        : map.newNode(node, ro);
     }
 
     private SegmentEntry valueSegmentOf(long addr) {
       var offset = node - base;
-      return couldUseTheSameSegment(addr, offset, 16, segmentSize)
+      return couldUseTheSameSegment(addr, offset, 16, map.segmentSize)
         ? new SegmentEntry(offset, segment)
-        : map.segment(addr, 16);
+        : map.segment(addr, 16, ro);
     }
 
     private void setLeft(VirtualNode node) {

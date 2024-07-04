@@ -22,7 +22,7 @@ package org.dauch.piola.collections.map;
  * #L%
  */
 
-import org.dauch.piola.collections.map.AVLMemoryMap.Node;
+import org.dauch.piola.collections.map.LongLongAVLMemoryMap.Node;
 import org.eclipse.collections.api.factory.primitive.LongLists;
 import org.eclipse.collections.api.list.primitive.ImmutableLongList;
 import org.eclipse.collections.impl.factory.primitive.LongSets;
@@ -44,10 +44,10 @@ import java.util.stream.*;
 import static java.lang.foreign.ValueLayout.JAVA_LONG;
 import static java.nio.channels.FileChannel.MapMode.READ_ONLY;
 import static java.nio.file.StandardOpenOption.READ;
-import static org.dauch.piola.collections.map.AVLMap.*;
+import static org.dauch.piola.collections.map.LongLongAVLDiskMap.*;
 import static org.junit.jupiter.api.Assertions.*;
 
-class AVLMapTest {
+class LongLongAVLDiskMapTest {
 
   private Path file;
 
@@ -58,7 +58,7 @@ class AVLMapTest {
 
   @Test
   void simple() {
-    try (var map = new AVLMap(file, 1 << 10, 1024)) {
+    try (var map = new LongLongAVLDiskMap(file, 1 << 10, 1024)) {
       map.put(10L, 20L);
       assertArrayEquals(new long[]{20L}, get(map, 10L));
     }
@@ -66,7 +66,7 @@ class AVLMapTest {
 
   @Test
   void twoValues() {
-    try (var map = new AVLMap(file, 1 << 10, 1024)) {
+    try (var map = new LongLongAVLDiskMap(file, 1 << 10, 1024)) {
       map.put(5L, 20L);
       map.put(5L, 30L);
       assertArrayEquals(new long[]{30L, 20L}, get(map, 5L));
@@ -75,7 +75,7 @@ class AVLMapTest {
 
   @Test
   void sorted() {
-    try (var map = new AVLMap(file, 1 << 10, 1024)) {
+    try (var map = new LongLongAVLDiskMap(file, 1 << 10, 1024)) {
       map.put(1L, 3L, Long::compare);
       map.put(1L, 2L, Long::compare);
       map.put(1L, 1L, Long::compare);
@@ -93,7 +93,7 @@ class AVLMapTest {
 
   @Test
   void sorted_check_duplicates() {
-    try (var map = new AVLMap(file, 1 << 10, 1024)) {
+    try (var map = new LongLongAVLDiskMap(file, 1 << 10, 1024)) {
       map.put(1L, 3L, Long::compare);
       map.put(1L, 2L, Long::compare);
       map.put(1L, 2L, Long::compare);
@@ -104,7 +104,7 @@ class AVLMapTest {
     }
   }
 
-  private static long[] get(AVLMap map, long key) {
+  private static long[] get(LongLongAVLDiskMap map, long key) {
     var streamBuilder = LongStream.builder();
     map.get(key, streamBuilder::add);
     return streamBuilder.build().toArray();
@@ -114,7 +114,7 @@ class AVLMapTest {
   @MethodSource("randomDataToPut")
   void putAndGet(long[] keys, long[] values) {
     var map = new TreeMap<Long, LongArrayList>();
-    try (var actualMap = new AVLMap(file, 1 << 20, 1024)) {
+    try (var actualMap = new LongLongAVLDiskMap(file, 1 << 20, 1024)) {
       for (int i = 0; i < keys.length; i++) {
         map.computeIfAbsent(keys[i], _ -> new LongArrayList()).addAtIndex(0, values[i]);
         actualMap.put(keys[i], values[i]);
@@ -133,8 +133,8 @@ class AVLMapTest {
   @ParameterizedTest
   @MethodSource("randomDataToPut")
   void compareStructureAfterPut(long[] keys, long[] values) throws Exception {
-    var expectedMap = new AVLMemoryMap();
-    try (var actualMap = new AVLMap(file, 1 << 20, 1024)) {
+    var expectedMap = new LongLongAVLMemoryMap();
+    try (var actualMap = new LongLongAVLDiskMap(file, 1 << 20, 1024)) {
       for (int i = 0; i < keys.length; i++) {
         expectedMap.put(keys[i], values[i]);
         actualMap.put(keys[i], values[i]);
