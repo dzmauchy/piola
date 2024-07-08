@@ -9,28 +9,19 @@
     <version>1.0-SNAPSHOT</version>
   </parent>
 
-  <artifactId>piola-benchmarks</artifactId>
+  <artifactId>piola-io-tcp</artifactId>
 
   <dependencies>
     <dependency>
       <groupId>${project.groupId}</groupId>
-      <artifactId>piola-io-sctp</artifactId>
+      <artifactId>piola-io</artifactId>
       <version>${project.version}</version>
     </dependency>
     <dependency>
       <groupId>${project.groupId}</groupId>
-      <artifactId>piola-io-tcp</artifactId>
+      <artifactId>piola-io-test</artifactId>
       <version>${project.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>org.openjdk.jmh</groupId>
-      <artifactId>jmh-generator-annprocess</artifactId>
-      <version>${jmh.version}</version>
-    </dependency>
-    <dependency>
-      <groupId>it.unimi.dsi</groupId>
-      <artifactId>fastutil</artifactId>
-      <version>8.5.13</version>
+      <scope>test</scope>
     </dependency>
   </dependencies>
 
@@ -40,6 +31,13 @@
         <artifactId>maven-compiler-plugin</artifactId>
         <configuration>
           <proc>full</proc>
+          <annotationProcessorPaths>
+            <path>
+              <groupId>org.dauch</groupId>
+              <artifactId>piola-processors</artifactId>
+              <version>${project.version}</version>
+            </path>
+          </annotationProcessorPaths>
         </configuration>
       </plugin>
     </plugins>

@@ -22,7 +22,6 @@ package org.dauch.piola.benchmark.queue;
  * #L%
  */
 
-import org.dauch.piola.benchmark.CPULoadProfiler;
 import org.dauch.piola.util.DrainQueue;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.runner.Runner;
@@ -117,10 +116,8 @@ public class DrainBenchmark {
   }
 
   public static void main(String... args) throws Exception {
-    var runner = new Runner(new OptionsBuilder()
+    new Runner(new OptionsBuilder()
       .include(MethodHandles.lookup().lookupClass().getName())
-      .addProfiler(CPULoadProfiler.class)
-      .build());
-    runner.run();
+      .build()).run();
   }
 }

@@ -43,8 +43,11 @@
 
   <modules>
     <module>piola-processors</module>
-    <module>piola-collections</module>
-    <module>piola-cluster</module>
+    <module>piola-library</module>
+    <module>piola-io</module>
+    <module>piola-io-test</module>
+    <module>piola-io-sctp</module>
+    <module>piola-io-tcp</module>
     <module>piola-benchmarks</module>
   </modules>
 
@@ -54,6 +57,13 @@
         <groupId>org.junit</groupId>
         <artifactId>junit-bom</artifactId>
         <version>5.10.2</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.glassfish.grizzly</groupId>
+        <artifactId>grizzly-bom</artifactId>
+        <version>4.0.2</version>
         <type>pom</type>
         <scope>import</scope>
       </dependency>
@@ -79,12 +89,6 @@
     <dependency>
       <groupId>org.junit.platform</groupId>
       <artifactId>junit-platform-launcher</artifactId>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.awaitility</groupId>
-      <artifactId>awaitility</artifactId>
-      <version>4.2.1</version>
       <scope>test</scope>
     </dependency>
     <dependency>
