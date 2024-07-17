@@ -1,4 +1,4 @@
-package org.dauch.piola.util;
+package org.dauch.piola.concurrent;
 
 /*-
  * #%L
@@ -31,7 +31,7 @@ import java.util.stream.IntStream;
 import static java.math.BigInteger.ONE;
 import static java.math.BigInteger.ZERO;
 import static java.util.concurrent.locks.LockSupport.parkNanos;
-import static org.dauch.piola.util.BigIntCounter.THRESHOLD;
+import static org.dauch.piola.concurrent.BigIntCounter.THRESHOLD;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class BigIntCounterTest {

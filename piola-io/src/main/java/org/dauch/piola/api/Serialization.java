@@ -1,4 +1,4 @@
-package org.dauch.piola.util;
+package org.dauch.piola.api;
 
 /*-
  * #%L
@@ -25,6 +25,7 @@ package org.dauch.piola.util;
 import org.dauch.piola.attributes.Attrs;
 import org.dauch.piola.attributes.SimpleAttrs;
 import org.dauch.piola.exception.ExceptionData;
+import org.dauch.piola.util.Id;
 
 import java.nio.ByteBuffer;
 import java.time.*;

@@ -76,7 +76,7 @@ public final class SerializationProcessor extends BaseProcessor {
       w.printf("import org.dauch.piola.api.SerializationContext;%n");
       w.printf("import %s;%n", fqn);
       w.printf("import static %s.*;%n", fqn);
-      w.printf("import org.dauch.piola.util.Serialization;%n");
+      w.printf("import org.dauch.piola.api.Serialization;%n");
       w.printf("public class %s {%n", t.getSimpleName() + "Serde");
       w.printf("  public static %s read(ByteBuffer $b, SerializationContext $c) {%n", t.getSimpleName());
       for (var cmp: cs) {

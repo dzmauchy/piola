@@ -22,7 +22,7 @@ package org.dauch.piola.exception;
  * #L%
  */
 
-import org.dauch.piola.util.Serialization;
+import org.dauch.piola.api.Serialization;
 
 import java.nio.ByteBuffer;
 import java.util.*;

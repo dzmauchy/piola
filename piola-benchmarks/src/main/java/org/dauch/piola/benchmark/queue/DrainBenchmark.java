@@ -22,7 +22,7 @@ package org.dauch.piola.benchmark.queue;
  * #L%
  */
 
-import org.dauch.piola.util.DrainQueue;
+import org.dauch.piola.concurrent.DrainQueue;
 import org.openjdk.jmh.annotations.*;
 import org.openjdk.jmh.runner.Runner;
 import org.openjdk.jmh.runner.options.OptionsBuilder;
