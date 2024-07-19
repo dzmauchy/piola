@@ -22,12 +22,13 @@ package org.dauch.piola.server;
  * #L%
  */
 
-import org.dauch.piola.api.request.*;
-import org.dauch.piola.api.response.TopicInfoResponse;
-import org.dauch.piola.api.response.TopicNotFoundResponse;
-import org.dauch.piola.attributes.EmptyAttrs;
-import org.dauch.piola.attributes.SimpleAttrs;
-import org.dauch.piola.client.Client;
+import org.dauch.piola.io.api.request.*;
+import org.dauch.piola.io.api.response.TopicInfoResponse;
+import org.dauch.piola.io.api.response.TopicNotFoundResponse;
+import org.dauch.piola.io.attributes.EmptyAttrs;
+import org.dauch.piola.io.attributes.SimpleAttrs;
+import org.dauch.piola.io.client.Client;
+import org.dauch.piola.io.server.Server;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;

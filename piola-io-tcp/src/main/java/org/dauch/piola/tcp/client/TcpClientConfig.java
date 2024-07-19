@@ -22,10 +22,10 @@ package org.dauch.piola.tcp.client;
  * #L%
  */
 
-import org.dauch.piola.annotation.Conf;
-import org.dauch.piola.annotation.Default;
-import org.dauch.piola.api.conf.TcpClientConfigIO;
-import org.dauch.piola.client.ClientConfig;
+import org.dauch.piola.io.annotation.Conf;
+import org.dauch.piola.io.annotation.Default;
+import org.dauch.piola.io.api.conf.TcpClientConfigIO;
+import org.dauch.piola.io.client.ClientConfig;
 import org.dauch.piola.tcp.CommonConfig;
 import org.dauch.piola.util.Id;
 

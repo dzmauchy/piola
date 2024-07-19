@@ -22,10 +22,10 @@ package org.dauch.piola.tcp.server;
  * #L%
  */
 
-import org.dauch.piola.annotation.Conf;
-import org.dauch.piola.annotation.Default;
-import org.dauch.piola.api.conf.TcpServerConfigIO;
-import org.dauch.piola.server.ServerConfig;
+import org.dauch.piola.io.annotation.Conf;
+import org.dauch.piola.io.annotation.Default;
+import org.dauch.piola.io.api.conf.TcpServerConfigIO;
+import org.dauch.piola.io.server.ServerConfig;
 import org.dauch.piola.tcp.CommonConfig;
 
 import java.net.*;

@@ -34,7 +34,7 @@ public final class ConfigurationProcessor extends BaseProcessor {
 
   @Override
   public Set<String> getSupportedAnnotationTypes() {
-    return Set.of("org.dauch.piola.annotation.Conf");
+    return Set.of("org.dauch.piola.io.annotation.Conf");
   }
 
   @Override
@@ -55,10 +55,10 @@ public final class ConfigurationProcessor extends BaseProcessor {
 
   private void process(TypeElement t) throws Exception {
     var fqn = t.getQualifiedName().toString();
-    var src = filer.createSourceFile("org.dauch.piola.api.conf." + t.getSimpleName() + "IO", t);
+    var src = filer.createSourceFile("org.dauch.piola.io.api.conf." + t.getSimpleName() + "IO", t);
     var cs = t.getRecordComponents();
     try (var w = new PrintWriter(src.openWriter())) {
-      w.printf("package org.dauch.piola.api.conf;%n%n");
+      w.printf("package org.dauch.piola.io.api.conf;%n%n");
       w.printf("import org.dauch.piola.util.Props;%n");
       w.printf("import %s;%n", fqn);
       w.printf("import %s;%n", Properties.class.getName());

@@ -22,9 +22,9 @@ package org.dauch.piola.tcp.server;
  * #L%
  */
 
-import org.dauch.piola.api.SerializationContext;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.server.ServerRequest;
+import org.dauch.piola.io.api.SerializationContext;
+import org.dauch.piola.io.api.request.Request;
+import org.dauch.piola.io.server.ServerRequest;
 
 import java.io.EOFException;
 import java.io.IOException;

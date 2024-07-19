@@ -24,10 +24,10 @@ package org.dauch.piola.sctp.server;
 
 import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.SctpMultiChannel;
-import org.dauch.piola.api.*;
-import org.dauch.piola.api.response.Response;
+import org.dauch.piola.io.api.*;
+import org.dauch.piola.io.api.response.Response;
 import org.dauch.piola.sctp.SctpUtils;
-import org.dauch.piola.server.AbstractServer;
+import org.dauch.piola.io.server.AbstractServer;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;

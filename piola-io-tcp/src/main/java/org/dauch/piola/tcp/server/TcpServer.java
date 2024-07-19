@@ -22,9 +22,9 @@ package org.dauch.piola.tcp.server;
  * #L%
  */
 
-import org.dauch.piola.api.*;
-import org.dauch.piola.api.response.Response;
-import org.dauch.piola.server.AbstractServer;
+import org.dauch.piola.io.api.*;
+import org.dauch.piola.io.api.response.Response;
+import org.dauch.piola.io.server.AbstractServer;
 import org.dauch.piola.tcp.SocketThread;
 import org.dauch.piola.tcp.TcpUtils;
 

@@ -39,7 +39,7 @@ public final class SerializationProcessor extends BaseProcessor {
 
   @Override
   public Set<String> getSupportedAnnotationTypes() {
-    return Set.of("org.dauch.piola.annotation.Serde");
+    return Set.of("org.dauch.piola.io.annotation.Serde");
   }
 
   @Override
@@ -60,7 +60,7 @@ public final class SerializationProcessor extends BaseProcessor {
 
   private void process(TypeElement t) throws Exception {
     var fqn = t.getQualifiedName().toString();
-    var src = filer.createSourceFile("org.dauch.piola.api.serde." + t.getSimpleName() + "Serde", t);
+    var src = filer.createSourceFile("org.dauch.piola.io.api.serde." + t.getSimpleName() + "Serde", t);
     var cs = t.getRecordComponents();
     var is = new TreeMap<Integer, RecordComponentElement>();
     cs.forEach(c -> {
@@ -71,12 +71,12 @@ public final class SerializationProcessor extends BaseProcessor {
       }
     });
     try (var w = new PrintWriter(src.openWriter())) {
-      w.printf("package org.dauch.piola.api.serde;%n%n");
+      w.printf("package org.dauch.piola.io.api.serde;%n%n");
       w.printf("import %s;%n", ByteBuffer.class.getName());
-      w.printf("import org.dauch.piola.api.SerializationContext;%n");
+      w.printf("import org.dauch.piola.io.api.SerializationContext;%n");
       w.printf("import %s;%n", fqn);
       w.printf("import static %s.*;%n", fqn);
-      w.printf("import org.dauch.piola.api.Serialization;%n");
+      w.printf("import org.dauch.piola.io.api.Serialization;%n");
       w.printf("public class %s {%n", t.getSimpleName() + "Serde");
       w.printf("  public static %s read(ByteBuffer $b, SerializationContext $c) {%n", t.getSimpleName());
       for (var cmp: cs) {

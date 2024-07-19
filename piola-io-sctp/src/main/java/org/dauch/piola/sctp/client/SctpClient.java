@@ -24,9 +24,9 @@ package org.dauch.piola.sctp.client;
 
 import com.sun.nio.sctp.MessageInfo;
 import com.sun.nio.sctp.SctpMultiChannel;
-import org.dauch.piola.api.RequestFactory;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.client.AbstractClient;
+import org.dauch.piola.io.api.RequestFactory;
+import org.dauch.piola.io.api.request.Request;
+import org.dauch.piola.io.client.AbstractClient;
 import org.dauch.piola.sctp.SctpUtils;
 
 import java.net.InetSocketAddress;

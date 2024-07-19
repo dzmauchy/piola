@@ -22,11 +22,11 @@ package org.dauch.piola.sctp.server;
  * #L%
  */
 
-import org.dauch.piola.annotation.Conf;
-import org.dauch.piola.annotation.Default;
-import org.dauch.piola.api.conf.SctpServerConfigIO;
+import org.dauch.piola.io.annotation.Conf;
+import org.dauch.piola.io.annotation.Default;
+import org.dauch.piola.io.api.conf.SctpServerConfigIO;
 import org.dauch.piola.sctp.CommonConfig;
-import org.dauch.piola.server.ServerConfig;
+import org.dauch.piola.io.server.ServerConfig;
 
 import java.net.InetAddress;
 import java.net.InetSocketAddress;

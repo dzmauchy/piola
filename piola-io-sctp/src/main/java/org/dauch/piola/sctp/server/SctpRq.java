@@ -23,9 +23,9 @@ package org.dauch.piola.sctp.server;
  */
 
 import com.sun.nio.sctp.MessageInfo;
-import org.dauch.piola.api.SerializationContext;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.server.ServerRequest;
+import org.dauch.piola.io.api.SerializationContext;
+import org.dauch.piola.io.api.request.Request;
+import org.dauch.piola.io.server.ServerRequest;
 
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;

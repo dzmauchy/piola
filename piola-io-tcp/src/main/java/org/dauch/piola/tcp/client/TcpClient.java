@@ -22,9 +22,9 @@ package org.dauch.piola.tcp.client;
  * #L%
  */
 
-import org.dauch.piola.api.RequestFactory;
-import org.dauch.piola.api.request.Request;
-import org.dauch.piola.client.AbstractClient;
+import org.dauch.piola.io.api.RequestFactory;
+import org.dauch.piola.io.api.request.Request;
+import org.dauch.piola.io.client.AbstractClient;
 import org.dauch.piola.tcp.TcpUtils;
 
 import java.io.*;
