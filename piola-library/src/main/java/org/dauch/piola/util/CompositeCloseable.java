@@ -26,21 +26,29 @@ import java.util.LinkedHashMap;
 
 import static java.lang.System.Logger.Level.INFO;
 
-public abstract class CompositeCloseable implements AutoCloseable {
+public class CompositeCloseable implements AutoCloseable {
 
   protected final System.Logger logger;
   private final LinkedHashMap<String, AutoCloseable> killers = new LinkedHashMap<>(8, 0.1f);
 
-  protected CompositeCloseable(String loggerName) {
-    logger = System.getLogger(loggerName);
+  public CompositeCloseable(String loggerName) {
+    this(System.getLogger(loggerName));
+  }
+
+  public CompositeCloseable(System.Logger logger) {
+    this.logger = logger;
   }
 
   protected <C extends AutoCloseable> C $(String name, C closeable) {
+    add(name, closeable);
+    return closeable;
+  }
+
+  public void add(String name, AutoCloseable closeable) {
     var old = killers.putLast(name, closeable);
     if (old != null && old != closeable) {
       throw new IllegalStateException("Duplicated closeable " + name);
     }
-    return closeable;
   }
 
   protected <E extends Throwable> E constructorException(E exception) {

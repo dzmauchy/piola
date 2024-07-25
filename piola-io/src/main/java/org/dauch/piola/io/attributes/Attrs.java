@@ -32,9 +32,9 @@ import java.util.function.*;
 public abstract sealed class Attrs permits SimpleAttrs, FileAttrs, EmptyAttrs {
 
   abstract long readRaw(long key) throws NoValueException;
-  abstract int size();
-  abstract long getKeyByIndex(int index);
-  abstract long getValueByIndex(int index);
+  public abstract int size();
+  public abstract long getKeyByIndex(int index);
+  public abstract long getValueByIndex(int index);
   public abstract void write(ByteBuffer buffer);
 
   public final byte getByte(String key, IntSupplier def) {

@@ -197,7 +197,7 @@ public abstract class AbstractServer<RQ extends ServerRequest, RS extends Server
     switch (request) {
       case UnknownRequest r -> {
         unknownRequests.increment();
-        responses.accept(null, new ErrorResponse("Unknown request: " + r.code(), null));
+        responses.accept(null, new ErrorResponse("Unknown request: " + r.code()));
       }
       case TopicCreateRequest r -> handler.createTopic(r, rs -> responses.accept(null, rs));
       case TopicDeleteRequest r -> handler.deleteTopic(r, rs -> responses.accept(null, rs));

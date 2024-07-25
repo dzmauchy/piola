@@ -130,17 +130,17 @@ public final class SimpleAttrs extends Attrs {
   }
 
   @Override
-  int size() {
+  public int size() {
     return keys.length;
   }
 
   @Override
-  long getKeyByIndex(int index) {
+  public long getKeyByIndex(int index) {
     return keys[index];
   }
 
   @Override
-  long getValueByIndex(int index) {
+  public long getValueByIndex(int index) {
     return values[index];
   }
 }

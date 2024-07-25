@@ -60,17 +60,17 @@ public final class FileAttrs extends Attrs implements AutoCloseable {
   }
 
   @Override
-  int size() {
+  public int size() {
     return (int) (segment.byteSize() >>> 4);
   }
 
   @Override
-  long getKeyByIndex(int index) {
+  public long getKeyByIndex(int index) {
     return segment.getAtIndex(LONG, index * 2L);
   }
 
   @Override
-  long getValueByIndex(int index) {
+  public long getValueByIndex(int index) {
     return segment.getAtIndex(LONG, index * 2L + 1L);
   }
 

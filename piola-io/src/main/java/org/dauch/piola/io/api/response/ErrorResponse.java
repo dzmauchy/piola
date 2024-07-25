@@ -35,6 +35,14 @@ public record ErrorResponse(@Id(1) String error, @Id(2) @Custom ExceptionData ex
   TopicListResponse,
   DataSendResponse {
 
+  public ErrorResponse(String error) {
+    this(error, (ExceptionData) null);
+  }
+
+  public ErrorResponse(String error, Throwable throwable) {
+    this(error, ExceptionData.from(throwable));
+  }
+
   public ResponseException toException() {
     return new ResponseException(error, exception);
   }

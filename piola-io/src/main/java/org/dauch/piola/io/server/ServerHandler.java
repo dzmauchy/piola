@@ -22,18 +22,20 @@ package org.dauch.piola.io.server;
  * #L%
  */
 
-import org.dauch.piola.io.attributes.FileAttrs;
-import org.dauch.piola.io.attributes.SimpleAttrs;
-import org.dauch.piola.io.exception.ExceptionData;
 import org.dauch.piola.io.api.request.*;
 import org.dauch.piola.io.api.response.*;
+import org.dauch.piola.io.attributes.FileAttrs;
+import org.dauch.piola.io.attributes.SimpleAttrs;
 import org.dauch.piola.io.validation.TopicValidation;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.concurrent.ConcurrentSkipListMap;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Consumer;
 
+import static java.lang.Integer.remainderUnsigned;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.lang.System.Logger.Level.INFO;
 
@@ -41,12 +43,16 @@ public final class ServerHandler implements AutoCloseable {
 
   private final System.Logger logger;
   private final Path baseDir;
+  private final ReentrantLock[] locks = new ReentrantLock[256];
   private final ConcurrentSkipListMap<String, TopicData> topics = new ConcurrentSkipListMap<>();
 
   public ServerHandler(System.Logger logger, Path baseDir) throws Exception {
     this.logger = logger;
     this.baseDir = baseDir;
     Files.createDirectories(baseDir);
+    for (int i = 0; i < locks.length; i++) {
+      locks[i] = new ReentrantLock();
+    }
   }
 
   public void createTopic(TopicCreateRequest request, Consumer<? super Response> consumer) {
@@ -65,7 +71,7 @@ public final class ServerHandler implements AutoCloseable {
         consumer.accept(new TopicInfoResponse(request.topic(), attrs));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to create topic in " + d, e);
-        consumer.accept(new ErrorResponse("Topic creation error", ExceptionData.from(e)));
+        consumer.accept(new ErrorResponse("Topic creation error", e));
       }
     });
   }
@@ -94,11 +100,11 @@ public final class ServerHandler implements AutoCloseable {
         var old = topics.remove(request.topic());
         if (old != null) {
           logger.log(INFO, () -> "Closing " + old);
-          old.close();
+          old.close(logger);
         }
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to delete the topic " + request.topic(), e);
-        consumer.accept(new ErrorResponse("Topic deletion error", ExceptionData.from(e)));
+        consumer.accept(new ErrorResponse("Topic deletion error", e));
       }
     });
   }
@@ -116,7 +122,7 @@ public final class ServerHandler implements AutoCloseable {
         consumer.accept(new TopicInfoResponse(request.topic(), fileAttrs));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to get the topic " + request.topic(), e);
-        consumer.accept(new ErrorResponse("Topic getting error", ExceptionData.from(e)));
+        consumer.accept(new ErrorResponse("Topic getting error", e));
       }
     });
   }
@@ -150,23 +156,57 @@ public final class ServerHandler implements AutoCloseable {
   }
 
   public void sendData(DataSendRequest request, ServerRequest sr, Consumer<? super Response> consumer) {
-    var buf = sr.buffer();
+    TopicValidation.validateName(request.topic());
+    withReadLock(request.topic(), d -> {
+      if (d == null) {
+        consumer.accept(new ErrorResponse("Topic " + request.topic() + " doesn't exist"));
+        return;
+      }
+      d.writeData(sr.buffer(), request.labels());
+    });
   }
 
   private void withWriteLock(String topic, Consumer<TopicData> task) {
     TopicValidation.validateName(topic);
-    var dir = baseDir.resolve(topic);
-    var data = topics.computeIfAbsent(topic, _ -> new TopicData(dir));
-    data.withWriteLock(() -> task.accept(data));
+    var locked = new AtomicBoolean(true);
+    var lock = locks[remainderUnsigned(topic.hashCode(), locks.length)];
+    lock.lock();
+    try {
+      var data = topics.computeIfAbsent(topic, _ -> new TopicData(baseDir.resolve(topic)));
+      data.withWriteLock(() -> {
+        lock.unlock();
+        locked.set(false);
+        task.accept(data);
+      });
+    } finally {
+      if (locked.get()) {
+        lock.unlock();
+      }
+    }
   }
 
   private void withReadLock(String topic, Consumer<TopicData> task) {
     TopicValidation.validateName(topic);
-    var data = topics.get(topic);
-    if (data == null) {
-      task.accept(null);
-    } else {
-      data.withReadLock(() -> task.accept(data));
+    var locked = new AtomicBoolean(true);
+    var lock = locks[remainderUnsigned(topic.hashCode(), locks.length)];
+    lock.lock();
+    try {
+      var data = topics.get(topic);
+      if (data == null || !data.exists()) {
+        lock.unlock();
+        locked.set(false);
+        task.accept(null);
+      } else {
+        data.withReadLock(() -> {
+          lock.unlock();
+          locked.set(false);
+          task.accept(data);
+        });
+      }
+    } finally {
+      if (locked.get()) {
+        lock.unlock();
+      }
     }
   }
 
@@ -178,7 +218,7 @@ public final class ServerHandler implements AutoCloseable {
       var data = e.getValue();
       try {
         logger.log(INFO, () -> "Closing topic data " + topic);
-        data.close();
+        data.close(logger);
       } catch (Throwable x) {
         closeException.addSuppressed(x);
       }

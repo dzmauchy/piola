@@ -39,17 +39,17 @@ public final class EmptyAttrs extends Attrs {
   }
 
   @Override
-  int size() {
+  public int size() {
     return 0;
   }
 
   @Override
-  long getKeyByIndex(int index) {
+  public long getKeyByIndex(int index) {
     throw new IndexOutOfBoundsException();
   }
 
   @Override
-  long getValueByIndex(int index) {
+  public long getValueByIndex(int index) {
     throw new IndexOutOfBoundsException();
   }
 
