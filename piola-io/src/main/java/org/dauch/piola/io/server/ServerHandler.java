@@ -160,9 +160,10 @@ public final class ServerHandler implements AutoCloseable {
     withReadLock(request.topic(), d -> {
       if (d == null) {
         consumer.accept(new ErrorResponse("Topic " + request.topic() + " doesn't exist"));
-        return;
+      } else {
+        var offset = d.writeData(sr.buffer(), request.labels());
+        consumer.accept(new DataReceivedResponse(offset));
       }
-      d.writeData(sr.buffer(), request.labels());
     });
   }
 

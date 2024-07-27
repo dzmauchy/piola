@@ -25,10 +25,8 @@ package org.dauch.piola.io.api.response;
 import org.dauch.piola.io.annotation.Id;
 import org.dauch.piola.io.annotation.Serde;
 
-import java.time.Instant;
-
 @Serde
 public record DataReceivedResponse(
-  @Id(1) Instant timestamp
+  @Id(1) long offset
 ) implements DataSendResponse {
 }

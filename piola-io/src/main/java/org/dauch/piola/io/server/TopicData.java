@@ -36,12 +36,13 @@ import java.util.TreeMap;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static java.lang.System.Logger.Level.ERROR;
+import static java.nio.file.Files.createDirectories;
 import static java.nio.file.StandardOpenOption.*;
 import static java.util.Objects.requireNonNullElseGet;
 
 final class TopicData {
 
-  private final ByteBuffer sizeBuffer = ByteBuffer.allocateDirect(4);
+  private final ByteBuffer attrBuffer = ByteBuffer.allocateDirect(2 << 17);
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private final TreeMap<Long, LongLongAVLDiskMap> indices = new TreeMap<>();
   private final Path directory;
@@ -75,7 +76,7 @@ final class TopicData {
   }
 
   void create() throws Exception {
-    Files.createDirectory(directory);
+    createDirectories(directory.resolve("index"));
   }
 
   void withReadLock(Runnable task) {
@@ -96,25 +97,24 @@ final class TopicData {
     }
   }
 
-  synchronized void writeData(ByteBuffer buffer, Attrs attributes) {
-    var size = buffer.remaining();
+  synchronized long writeData(ByteBuffer buffer, Attrs attributes) {
     try {
       if (dataChannel == null) {
         dataChannel = FileChannel.open(directory.resolve("data.data"), EnumSet.of(CREATE, WRITE, APPEND));
       }
       var pos = dataChannel.position();
-      var b = new ByteBuffer[]{sizeBuffer.reset().putInt(0, size), buffer};
-      for (var rem = 4L + size; rem > 0L; ) {
+      attributes.write(attrBuffer.clear().putInt(buffer.remaining()));
+      var b = new ByteBuffer[]{attrBuffer.flip(), buffer};
+      while (attrBuffer.hasRemaining() && buffer.hasRemaining()) {
         var n = dataChannel.write(b);
         if (n < 0) {
           throw new EOFException();
-        } else {
-          rem -= n;
         }
       }
       for (int i = 0, l = attributes.size(); i < l; i++) {
         getOrCreateIndex(attributes.getKeyByIndex(i)).put(attributes.getValueByIndex(i), pos);
       }
+      return pos;
     } catch (IOException e) {
       throw new UncheckedIOException(e);
     }
@@ -122,13 +122,8 @@ final class TopicData {
 
   private LongLongAVLDiskMap getOrCreateIndex(long key) {
     return indices.computeIfAbsent(key, k -> {
-      try {
-        var dir = Files.createDirectories(directory.resolve("index"));
-        var file = dir.resolve(Id.encode(k));
-        return new LongLongAVLDiskMap(file, 1 << 20, 64);
-      } catch (IOException e) {
-        throw new UncheckedIOException(e);
-      }
+      var file = directory.resolve("index").resolve(Id.encode(k));
+      return new LongLongAVLDiskMap(file, 1 << 20, 64);
     });
   }
 

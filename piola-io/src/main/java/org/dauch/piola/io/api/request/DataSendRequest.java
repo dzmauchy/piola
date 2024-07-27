@@ -23,7 +23,7 @@ package org.dauch.piola.io.api.request;
  */
 
 import org.dauch.piola.io.annotation.*;
-import org.dauch.piola.io.api.response.UnknownResponse;
+import org.dauch.piola.io.api.response.DataSendResponse;
 import org.dauch.piola.io.attributes.Attrs;
 import org.dauch.piola.io.attributes.EmptyAttrs;
 
@@ -31,7 +31,7 @@ import org.dauch.piola.io.attributes.EmptyAttrs;
 public record DataSendRequest(
   @Id(1) @Default("\"default\"") String topic,
   @Id(2) @Default("defaultLabels()") Attrs labels
-) implements Request<UnknownResponse> {
+) implements Request<DataSendResponse> {
 
   @Override
   public boolean hasPayload() {

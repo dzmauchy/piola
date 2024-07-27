@@ -23,8 +23,7 @@ package org.dauch.piola.server;
  */
 
 import org.dauch.piola.io.api.request.*;
-import org.dauch.piola.io.api.response.TopicInfoResponse;
-import org.dauch.piola.io.api.response.TopicNotFoundResponse;
+import org.dauch.piola.io.api.response.*;
 import org.dauch.piola.io.attributes.EmptyAttrs;
 import org.dauch.piola.io.attributes.SimpleAttrs;
 import org.dauch.piola.io.client.Client;
@@ -32,6 +31,7 @@ import org.dauch.piola.io.server.Server;
 import org.junit.jupiter.api.Test;
 
 import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
 import java.util.HashSet;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -152,5 +152,25 @@ public interface AnyServerTestBase {
     } else {
       throw new AssertionError("Expected TopicInfoResponse, got " + rs);
     }
+  }
+
+  @Test
+  default void sendData() {
+    // given
+    {
+      var rs = getClient().send(new TopicCreateRequest("t1", null), null, 0, getAddress())
+        .poll(3L, SECONDS)
+        .response();
+      assertEquals(new TopicInfoResponse("t1", EmptyAttrs.EMPTY_ATTRS), rs);
+    }
+    var attrs = new SimpleAttrs();
+    attrs.putInt("a", 1);
+    attrs.putInt("b", 2);
+    var data = new byte[] {1, 2, 3, 4};
+    // when
+    var rs = getClient().send(new DataSendRequest("t1", attrs), ByteBuffer.wrap(data), 0, getAddress())
+      .poll(3L, SECONDS)
+      .response();
+    assertEquals(new DataReceivedResponse(0L), rs);
   }
 }
