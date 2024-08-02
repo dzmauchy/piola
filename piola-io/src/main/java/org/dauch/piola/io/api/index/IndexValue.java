@@ -1,8 +1,8 @@
-package org.dauch.piola.io.attributes;
+package org.dauch.piola.io.api.index;
 
 /*-
  * #%L
- * piola-server
+ * piola-io
  * %%
  * Copyright (C) 2024 dauch
  * %%
@@ -22,39 +22,18 @@ package org.dauch.piola.io.attributes;
  * #L%
  */
 
-import org.dauch.piola.io.exception.NoValueException;
+import static java.lang.Long.toUnsignedString;
+import static org.dauch.piola.util.Id.decode;
+import static org.dauch.piola.util.Id.encode;
 
-import java.nio.ByteBuffer;
+public record IndexValue(long key, long value, IndexType type) {
 
-public final class EmptyAttrs extends Attrs {
-
-  public static final EmptyAttrs EMPTY_ATTRS = new EmptyAttrs();
-
-  private EmptyAttrs() {
+  public IndexValue(String key, long value, IndexType type) {
+    this(decode(key), value, type);
   }
 
   @Override
-  long readRaw(long key) throws NoValueException {
-    throw NoValueException.NO_VALUE_EXCEPTION;
-  }
-
-  @Override
-  public int size() {
-    return 0;
-  }
-
-  @Override
-  public long getKeyByIndex(int index) {
-    throw new IndexOutOfBoundsException();
-  }
-
-  @Override
-  public long getValueByIndex(int index) {
-    throw new IndexOutOfBoundsException();
-  }
-
-  @Override
-  public void write(ByteBuffer buffer) {
-    buffer.putInt(0);
+  public String toString() {
+    return encode(key) + ":" + type + "=" + toUnsignedString(value);
   }
 }

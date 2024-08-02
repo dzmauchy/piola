@@ -22,8 +22,8 @@ package org.dauch.piola.io.api;
  * #L%
  */
 
-import org.dauch.piola.io.attributes.Attrs;
-import org.dauch.piola.io.attributes.SimpleAttrs;
+import org.dauch.piola.io.api.index.IndexType;
+import org.dauch.piola.io.api.index.IndexValue;
 import org.dauch.piola.io.exception.ExceptionData;
 import org.dauch.piola.util.Id;
 
@@ -107,14 +107,6 @@ public final class Serialization {
     }
   }
 
-  public static SimpleAttrs read(ByteBuffer buffer, Attrs attrs) {
-    return new SimpleAttrs(buffer);
-  }
-
-  public static void write(ByteBuffer buffer, Attrs attrs) {
-    attrs.write(buffer);
-  }
-
   public static String[] read(ByteBuffer buffer, String[] value) {
     var array = new String[buffer.getInt()];
     for (int i = 0; i < array.length; i++) {
@@ -145,5 +137,29 @@ public final class Serialization {
     var seconds = buffer.getLong();
     var nanos = buffer.getInt();
     return Instant.ofEpochSecond(seconds, nanos);
+  }
+
+  public static void write(ByteBuffer buffer, IndexValue[] value) {
+    if (value == null) {
+      buffer.put((byte) 0);
+    } else {
+      buffer.put((byte) value.length);
+      for (var v : value) {
+        buffer.putLong(v.key());
+        buffer.putLong(v.value());
+        buffer.put((byte) v.type().ordinal());
+      }
+    }
+  }
+
+  public static IndexValue[] read(ByteBuffer buffer, IndexValue[] value) {
+    var values = new IndexValue[buffer.get()];
+    for (int i = 0; i < values.length; i++) {
+      var k = buffer.getLong();
+      var v = buffer.getLong();
+      var t = IndexType.byId(buffer.get());
+      values[i] = new IndexValue(k, v, t);
+    }
+    return values;
   }
 }

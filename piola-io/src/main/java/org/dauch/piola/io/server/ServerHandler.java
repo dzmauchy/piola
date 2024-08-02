@@ -24,8 +24,6 @@ package org.dauch.piola.io.server;
 
 import org.dauch.piola.io.api.request.*;
 import org.dauch.piola.io.api.response.*;
-import org.dauch.piola.io.attributes.FileAttrs;
-import org.dauch.piola.io.attributes.SimpleAttrs;
 import org.dauch.piola.io.validation.TopicValidation;
 
 import java.nio.file.Files;
@@ -55,20 +53,13 @@ public final class ServerHandler implements AutoCloseable {
     }
   }
 
-  public void createTopic(TopicCreateRequest request, Consumer<? super Response> consumer) {
+  public void createTopic(TopicCreateRequest request, Consumer<? super TopicCreateResponse> consumer) {
     withWriteLock(request.topic(), d -> {
       try {
         if (!d.exists()) {
           d.create();
         }
-        var attrs = d.readFileAttrs();
-        if (attrs == null) {
-          throw new IllegalStateException("Unable to read attributes");
-        }
-        if (request.attrs() instanceof SimpleAttrs a && attrs instanceof FileAttrs fa) {
-          fa.update(a);
-        }
-        consumer.accept(new TopicInfoResponse(request.topic(), attrs));
+        consumer.accept(new TopicInfoResponse(request.topic()));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to create topic in " + d, e);
         consumer.accept(new ErrorResponse("Topic creation error", e));
@@ -76,7 +67,7 @@ public final class ServerHandler implements AutoCloseable {
     });
   }
 
-  public void deleteTopic(TopicDeleteRequest request, Consumer<? super Response> consumer) {
+  public void deleteTopic(TopicDeleteRequest request, Consumer<? super TopicDeleteResponse> consumer) {
     withWriteLock(request.topic(), d -> {
       try {
         if (d == null) {
@@ -84,16 +75,10 @@ public final class ServerHandler implements AutoCloseable {
           return;
         }
         if (d.exists()) {
-          var fileAttrs = d.readFileAttrs();
-          if (!(fileAttrs instanceof FileAttrs fa)) {
-            consumer.accept(new TopicNotFoundResponse());
-            return;
-          }
-          var attrs = fa.toSimpleAttrs();
           if (!d.delete()) {
             throw new IllegalStateException("Unable to delete the topic directory");
           }
-          consumer.accept(new TopicInfoResponse(request.topic(), attrs));
+          consumer.accept(new TopicInfoResponse(request.topic()));
         } else {
           consumer.accept(new TopicNotFoundResponse());
         }
@@ -109,17 +94,14 @@ public final class ServerHandler implements AutoCloseable {
     });
   }
 
-  public void getTopic(TopicGetRequest request, Consumer<? super Response> consumer) {
+  public void getTopic(TopicGetRequest request, Consumer<? super TopicGetResponse> consumer) {
     withReadLock(request.topic(), d -> {
       try {
         if (d == null) {
           consumer.accept(new TopicNotFoundResponse());
           return;
         }
-        var fileAttrs = d.readFileAttrs();
-        if (fileAttrs == null)
-          throw new IllegalStateException("Unable to read attributes");
-        consumer.accept(new TopicInfoResponse(request.topic(), fileAttrs));
+        consumer.accept(new TopicInfoResponse(request.topic()));
       } catch (Throwable e) {
         logger.log(ERROR, () -> "Unable to get the topic " + request.topic(), e);
         consumer.accept(new ErrorResponse("Topic getting error", e));
@@ -127,7 +109,7 @@ public final class ServerHandler implements AutoCloseable {
     });
   }
 
-  public void listTopics(TopicListRequest request, Consumer<? super Response> consumer) throws Exception {
+  public void listTopics(TopicListRequest request, Consumer<? super TopicListResponse> consumer) throws Exception {
     try (var ds = Files.newDirectoryStream(baseDir, Files::isDirectory)) {
       for (var dir : ds) {
         var topic = dir.getFileName().toString();
@@ -146,22 +128,19 @@ public final class ServerHandler implements AutoCloseable {
             continue;
           }
         }
-        var attrsFile = dir.resolve("attributes.data");
-        try (var fa = new FileAttrs(attrsFile, true)) {
-          consumer.accept(new TopicInfoResponse(topic, fa.toSimpleAttrs()));
-        }
+        consumer.accept(new TopicInfoResponse(topic));
       }
     }
-    consumer.accept(new TopicInfoResponse("", null));
+    consumer.accept(new TopicInfoResponse(""));
   }
 
-  public void sendData(DataSendRequest request, ServerRequest sr, Consumer<? super Response> consumer) {
+  public void sendData(DataSendRequest request, ServerRequest sr, Consumer<? super DataSendResponse> consumer) {
     TopicValidation.validateName(request.topic());
     withReadLock(request.topic(), d -> {
       if (d == null) {
         consumer.accept(new ErrorResponse("Topic " + request.topic() + " doesn't exist"));
       } else {
-        var offset = d.writeData(sr.buffer(), request.labels());
+        var offset = d.writeData(sr.buffer(), request.indices());
         consumer.accept(new DataReceivedResponse(offset));
       }
     });

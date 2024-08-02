@@ -1,8 +1,8 @@
-package org.dauch.piola.io.api.response;
+package org.dauch.piola.io.api.index;
 
 /*-
  * #%L
- * piola-server
+ * piola-io
  * %%
  * Copyright (C) 2024 dauch
  * %%
@@ -22,19 +22,17 @@ package org.dauch.piola.io.api.response;
  * #L%
  */
 
-import org.dauch.piola.io.annotation.Id;
-import org.dauch.piola.io.annotation.Serde;
+public enum IndexType {
+  UNORDERED,
+  ASC,
+  DESC;
 
-@Serde
-public record TopicInfoResponse(
-  @Id(1) String topic
-) implements
-  TopicCreateResponse,
-  TopicDeleteResponse,
-  TopicGetResponse,
-  TopicListResponse {
-
-  public boolean isEndOfInput() {
-    return topic.isEmpty();
+  public static IndexType byId(int id) {
+    return switch (id) {
+      case 0 -> UNORDERED;
+      case 1 -> ASC;
+      case 2 -> DESC;
+      default -> throw new IllegalArgumentException("Unsupported index type: " + id);
+    };
   }
 }

@@ -2,7 +2,7 @@ package org.dauch.piola.io.api.response;
 
 /*-
  * #%L
- * piola-server
+ * piola-io
  * %%
  * Copyright (C) 2024 dauch
  * %%
@@ -22,19 +22,5 @@ package org.dauch.piola.io.api.response;
  * #L%
  */
 
-import org.dauch.piola.io.annotation.Id;
-import org.dauch.piola.io.annotation.Serde;
-
-@Serde
-public record TopicInfoResponse(
-  @Id(1) String topic
-) implements
-  TopicCreateResponse,
-  TopicDeleteResponse,
-  TopicGetResponse,
-  TopicListResponse {
-
-  public boolean isEndOfInput() {
-    return topic.isEmpty();
-  }
+public sealed interface DataReadResponse extends Response permits DataResponse, ErrorResponse {
 }

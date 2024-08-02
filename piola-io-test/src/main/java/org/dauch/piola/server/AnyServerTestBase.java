@@ -22,10 +22,10 @@ package org.dauch.piola.server;
  * #L%
  */
 
+import org.dauch.piola.io.api.index.IndexType;
+import org.dauch.piola.io.api.index.IndexValue;
 import org.dauch.piola.io.api.request.*;
 import org.dauch.piola.io.api.response.*;
-import org.dauch.piola.io.attributes.EmptyAttrs;
-import org.dauch.piola.io.attributes.SimpleAttrs;
 import org.dauch.piola.io.client.Client;
 import org.dauch.piola.io.server.Server;
 import org.junit.jupiter.api.Test;
@@ -49,23 +49,19 @@ public interface AnyServerTestBase {
   default void create_get_delete() {
     {
       // when
-      var attrs = new SimpleAttrs();
-      attrs.putInt("partitions", 10);
-      var rs = getClient().send(new TopicCreateRequest("t1", attrs), null, 0, getAddress())
+      var rs = getClient().send(new TopicCreateRequest("t1"), null, 0, getAddress())
         .poll(3L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicInfoResponse("t1", attrs), rs);
+      assertEquals(new TopicInfoResponse("t1"), rs);
     }
     {
       // when
-      var attrs = new SimpleAttrs();
-      attrs.putInt("partitions", 10);
-      var rs = getClient().send(new TopicCreateRequest("t1", null), null, 0, getAddress())
+      var rs = getClient().send(new TopicCreateRequest("t1"), null, 0, getAddress())
         .poll(3L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicInfoResponse("t1", attrs), rs);
+      assertEquals(new TopicInfoResponse("t1"), rs);
     }
     {
       // when
@@ -77,21 +73,19 @@ public interface AnyServerTestBase {
     }
     {
       // when
-      var attrs = new SimpleAttrs();
-      attrs.putInt("partitions", 10);
       var rs = getClient().send(new TopicGetRequest("t1"), null, 0, getAddress())
         .poll(3L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicInfoResponse("t1", attrs), rs);
+      assertEquals(new TopicInfoResponse("t1"), rs);
     }
     {
       // when
-      var rs = getClient().send(new TopicCreateRequest("t2", null), null, 0, getAddress())
+      var rs = getClient().send(new TopicCreateRequest("t2"), null, 0, getAddress())
         .poll(3L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicInfoResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
+      assertEquals(new TopicInfoResponse("t2"), rs);
     }
     {
       // when
@@ -99,7 +93,7 @@ public interface AnyServerTestBase {
         .poll(3L, SECONDS)
         .response();
       // then
-      assertEquals(new TopicInfoResponse("t2", EmptyAttrs.EMPTY_ATTRS), rs);
+      assertEquals(new TopicInfoResponse("t2"), rs);
     }
   }
 
@@ -108,14 +102,12 @@ public interface AnyServerTestBase {
     // given
     var expected = new HashSet<TopicInfoResponse>();
     for (var i = 0; i < 10; i++) {
-      var attrs = new SimpleAttrs();
-      attrs.putInt("partitions", i + 1);
-      var rq = new TopicCreateRequest("t" + i, attrs);
+      var rq = new TopicCreateRequest("t" + i);
       var rs = getClient()
         .send(rq, null, 0, getAddress())
         .poll(3L, SECONDS)
         .response();
-      assertEquals(new TopicInfoResponse("t" + i, attrs), rs);
+      assertEquals(new TopicInfoResponse("t" + i), rs);
       expected.add((TopicInfoResponse) rs);
     }
     // when
@@ -136,39 +128,21 @@ public interface AnyServerTestBase {
   }
 
   @Test
-  default void send_many_attributes() {
-    // given
-    var attrs = new SimpleAttrs();
-    for (int i = 0; i < 10000; i++) {
-      attrs.putLong("a" + i, i);
-    }
-    // when
-    var rs = getClient().send(new TopicCreateRequest("t1", attrs), null, 0, getAddress())
-      .poll(3L, SECONDS)
-      .response();
-    // then
-    if (rs instanceof TopicInfoResponse r) {
-      assertEquals(attrs, r.attrs());
-    } else {
-      throw new AssertionError("Expected TopicInfoResponse, got " + rs);
-    }
-  }
-
-  @Test
   default void sendData() {
     // given
     {
-      var rs = getClient().send(new TopicCreateRequest("t1", null), null, 0, getAddress())
+      var rs = getClient().send(new TopicCreateRequest("t1"), null, 0, getAddress())
         .poll(3L, SECONDS)
         .response();
-      assertEquals(new TopicInfoResponse("t1", EmptyAttrs.EMPTY_ATTRS), rs);
+      assertEquals(new TopicInfoResponse("t1"), rs);
     }
-    var attrs = new SimpleAttrs();
-    attrs.putInt("a", 1);
-    attrs.putInt("b", 2);
+    var indices = new IndexValue[] {
+      new IndexValue("a", 1L, IndexType.UNORDERED),
+      new IndexValue("b", 2L, IndexType.UNORDERED)
+    };
     var data = new byte[] {1, 2, 3, 4};
     // when
-    var rs = getClient().send(new DataSendRequest("t1", attrs), ByteBuffer.wrap(data), 0, getAddress())
+    var rs = getClient().send(new DataSendRequest("t1", indices), ByteBuffer.wrap(data), 0, getAddress())
       .poll(3L, SECONDS)
       .response();
     assertEquals(new DataReceivedResponse(0L), rs);

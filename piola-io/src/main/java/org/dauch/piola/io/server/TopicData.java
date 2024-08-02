@@ -23,7 +23,8 @@ package org.dauch.piola.io.server;
  */
 
 import org.dauch.piola.collections.map.LongLongAVLDiskMap;
-import org.dauch.piola.io.attributes.*;
+import org.dauch.piola.io.api.Serialization;
+import org.dauch.piola.io.api.index.IndexValue;
 import org.dauch.piola.util.*;
 
 import java.io.*;
@@ -38,7 +39,6 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 import static java.lang.System.Logger.Level.ERROR;
 import static java.nio.file.Files.createDirectories;
 import static java.nio.file.StandardOpenOption.*;
-import static java.util.Objects.requireNonNullElseGet;
 
 final class TopicData {
 
@@ -46,29 +46,14 @@ final class TopicData {
   private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
   private final TreeMap<Long, LongLongAVLDiskMap> indices = new TreeMap<>();
   private final Path directory;
-  private FileAttrs attrs;
   private FileChannel dataChannel;
 
   TopicData(Path directory) {
     this.directory = directory;
   }
 
-  Attrs readFileAttrs() {
-    if (Files.isDirectory(directory)) {
-      return requireNonNullElseGet(attrs, () -> attrs = new FileAttrs(directory.resolve("attributes.data"), false));
-    } else {
-      return EmptyAttrs.EMPTY_ATTRS;
-    }
-  }
-
   boolean delete() throws IOException {
-    if (MoreFiles.deleteRecursively(directory)) {
-      attrs.close();
-      attrs = null;
-      return true;
-    } else {
-      return false;
-    }
+    return MoreFiles.deleteRecursively(directory);
   }
 
   boolean exists() {
@@ -97,13 +82,14 @@ final class TopicData {
     }
   }
 
-  synchronized long writeData(ByteBuffer buffer, Attrs attributes) {
+  synchronized long writeData(ByteBuffer buffer, IndexValue[] indices) {
     try {
       if (dataChannel == null) {
         dataChannel = FileChannel.open(directory.resolve("data.data"), EnumSet.of(CREATE, WRITE, APPEND));
       }
       var pos = dataChannel.position();
-      attributes.write(attrBuffer.clear().putInt(buffer.remaining()));
+      Serialization.write(attrBuffer.clear(), indices);
+      attrBuffer.putInt(buffer.remaining());
       var b = new ByteBuffer[]{attrBuffer.flip(), buffer};
       while (attrBuffer.hasRemaining() && buffer.hasRemaining()) {
         var n = dataChannel.write(b);
@@ -111,8 +97,13 @@ final class TopicData {
           throw new EOFException();
         }
       }
-      for (int i = 0, l = attributes.size(); i < l; i++) {
-        getOrCreateIndex(attributes.getKeyByIndex(i)).put(attributes.getValueByIndex(i), pos);
+      for (var index : indices) {
+        var map = getOrCreateIndex(index.key());
+        switch (index.type()) {
+          case UNORDERED -> map.put(index.value(), pos);
+          case ASC -> map.put(index.value(), pos, (v1, v2) -> v1 - v2);
+          case DESC -> map.put(index.value(), pos, (v1, v2) -> v2 - v1);
+        }
       }
       return pos;
     } catch (IOException e) {
@@ -128,7 +119,7 @@ final class TopicData {
   }
 
   public void close(System.Logger logger) {
-    try (var _ = attrs; var _ = dataChannel; var cc = new CompositeCloseable(logger)) {
+    try (var _ = dataChannel; var cc = new CompositeCloseable(logger)) {
       indices.forEach((k, v) -> cc.add(Id.encode(k), v));
       indices.clear();
     } catch (Throwable e) {

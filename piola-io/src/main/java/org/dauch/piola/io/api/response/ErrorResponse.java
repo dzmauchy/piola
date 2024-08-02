@@ -33,7 +33,8 @@ public record ErrorResponse(@Id(1) String error, @Id(2) @Custom ExceptionData ex
   TopicDeleteResponse,
   TopicGetResponse,
   TopicListResponse,
-  DataSendResponse {
+  DataSendResponse,
+  DataReadResponse {
 
   public ErrorResponse(String error) {
     this(error, (ExceptionData) null);

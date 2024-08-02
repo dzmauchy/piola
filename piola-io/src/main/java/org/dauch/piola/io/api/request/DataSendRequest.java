@@ -23,22 +23,17 @@ package org.dauch.piola.io.api.request;
  */
 
 import org.dauch.piola.io.annotation.*;
+import org.dauch.piola.io.api.index.IndexValue;
 import org.dauch.piola.io.api.response.DataSendResponse;
-import org.dauch.piola.io.attributes.Attrs;
-import org.dauch.piola.io.attributes.EmptyAttrs;
 
 @Serde
 public record DataSendRequest(
   @Id(1) @Default("\"default\"") String topic,
-  @Id(2) @Default("defaultLabels()") Attrs labels
+  @Id(2) IndexValue[] indices
 ) implements Request<DataSendResponse> {
 
   @Override
   public boolean hasPayload() {
     return true;
-  }
-
-  public static Attrs defaultLabels() {
-    return EmptyAttrs.EMPTY_ATTRS;
   }
 }

@@ -24,16 +24,9 @@ package org.dauch.piola.io.api.request;
 
 import org.dauch.piola.io.annotation.*;
 import org.dauch.piola.io.api.response.TopicCreateResponse;
-import org.dauch.piola.io.attributes.Attrs;
-import org.dauch.piola.io.attributes.EmptyAttrs;
 
 @Serde
 public record TopicCreateRequest(
-  @Id(0x01) @Default("\"default\"") String topic,
-  @Id(0x02) @Default("emptyAttrs()") Attrs attrs
+  @Id(0x01) @Default("\"default\"") String topic
 ) implements Request<TopicCreateResponse> {
-
-  public static EmptyAttrs emptyAttrs() {
-    return EmptyAttrs.EMPTY_ATTRS;
-  }
 }

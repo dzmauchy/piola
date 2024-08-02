@@ -29,5 +29,6 @@ public sealed interface Response permits
   TopicDeleteResponse,
   TopicGetResponse,
   TopicListResponse,
-  DataSendResponse {
+  DataSendResponse,
+  DataReadResponse {
 }
